@@ -73,9 +73,12 @@ Claude resolves any merge conflicts automatically when you run the skill via `/a
 |-------|------|-------------|
 | `/add-telegram` | Feature (branch) | Add Telegram as a messaging channel |
 | `/add-telegram-swarm` | Operational | Add agent swarm/teams support to Telegram |
+| `/add-telegram-reactions` | Feature (branch) | Emoji reactions for processing status (👀→👍/💔) |
+| `/add-voice-telegram` | Feature (branch) | Voice message transcription via local whisper.cpp |
 | `/add-compact` | Feature (branch) | Add `/compact` command for context compaction |
 | `/channel-formatting` | Feature (branch) | Convert Markdown to Telegram native formatting |
 | `/use-native-credential-proxy` | Feature (branch) | Replace OneCLI with .env-based credential proxy |
+| `/refresh-token` | Utility | Auto-refresh Claude OAuth tokens via cron |
 | `/claw` | Utility | CLI tool for headless agent operation |
 | `/setup` | Operational | First-time installation and configuration |
 | `/update-conclaw` | Operational | Pull upstream updates safely |
