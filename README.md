@@ -28,12 +28,13 @@ Then configure your channels and start chatting.
 
 ## What It Supports
 
-- **Multi-channel messaging** — WhatsApp, Telegram, Discord, Slack, Gmail
+- **Telegram messaging** — Primary channel with agent swarm support
 - **Isolated group context** — Each group has its own `CLAUDE.md` memory, filesystem, and container sandbox
 - **Scheduled tasks** — Recurring jobs that run Claude and message you back
 - **Web access** — Search and fetch content from the Web
 - **Container isolation** — Docker (macOS/Linux) or Apple Container (macOS)
 - **Credential security** — Agents never hold raw API keys; requests route through a credential proxy
+- **Skills as branches** — Install optional features via `git merge` of skill branches
 
 ## Architecture
 
@@ -53,6 +54,39 @@ Key files:
 - `src/task-scheduler.ts` — Runs scheduled tasks
 - `src/db.ts` — SQLite operations
 - `groups/*/CLAUDE.md` — Per-group memory
+- `.claude/skills/*/SKILL.md` — Skill definitions (on main branch)
+
+## Skills
+
+ConClaw uses a **skill-as-branch** system. Each optional feature lives in its own git branch (`skill/*`). To install a skill, merge its branch into your repo:
+
+```bash
+git fetch upstream skill/<name>
+git merge upstream/skill/<name>
+```
+
+Claude resolves any merge conflicts automatically when you run the skill via `/add-<name>`.
+
+### Available Skills
+
+| Skill | Type | Description |
+|-------|------|-------------|
+| `/add-telegram` | Feature (branch) | Add Telegram as a messaging channel |
+| `/add-telegram-swarm` | Operational | Add agent swarm/teams support to Telegram |
+| `/add-compact` | Feature (branch) | Add `/compact` command for context compaction |
+| `/channel-formatting` | Feature (branch) | Convert Markdown to Telegram native formatting |
+| `/use-native-credential-proxy` | Feature (branch) | Replace OneCLI with .env-based credential proxy |
+| `/claw` | Utility | CLI tool for headless agent operation |
+| `/setup` | Operational | First-time installation and configuration |
+| `/update-conclaw` | Operational | Pull upstream updates safely |
+| `/update-skills` | Operational | Update installed skill branches |
+| `/customize` | Operational | Interactive customization guidance |
+| `/debug` | Operational | Container debugging guide |
+| `/init-onecli` | Operational | Install OneCLI Agent Vault |
+
+**Feature skills** add code via `git merge` of a `skill/*` branch.
+**Operational skills** are instruction-only workflows (SKILL.md on main).
+**Utility skills** ship code files alongside SKILL.md.
 
 ## Requirements
 

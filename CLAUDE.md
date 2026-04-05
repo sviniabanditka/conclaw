@@ -20,6 +20,25 @@ Single Node.js process with channel system. Channels (WhatsApp, Telegram, Slack,
 | `src/db.ts` | SQLite operations |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
 | `container/skills/` | Skills loaded inside agent containers (browser, status, formatting) |
+| `.claude/skills/*/SKILL.md` | Skill definitions (skill-as-branch system) |
+
+## Skills
+
+Four types of skills exist in ConClaw:
+
+- **Feature skills** — merge a `skill/*` branch to add capabilities (e.g. `/add-telegram`, `/add-compact`)
+- **Utility skills** — ship code files alongside SKILL.md (e.g. `/claw`)
+- **Operational skills** — instruction-only workflows on `main` (e.g. `/setup`, `/debug`)
+- **Container skills** — loaded inside agent containers at runtime (`container/skills/`)
+
+| Skill | When to Use |
+|-------|-------------|
+| `/setup` | First-time installation, authentication, service configuration |
+| `/customize` | Adding integrations, changing behavior |
+| `/debug` | Container issues, logs, troubleshooting |
+| `/update-conclaw` | Bring upstream updates into a customized install |
+| `/update-skills` | Update installed skill branches from upstream |
+| `/init-onecli` | Install OneCLI Agent Vault and migrate `.env` credentials to it |
 
 ## Secrets / Credentials / Proxy (OneCLI)
 
