@@ -22,7 +22,7 @@ description: Install the claw CLI tool — run ConClaw agent containers from the
 
 - Python 3.8 or later
 - ConClaw installed with a built and tagged container image (`conclaw-agent:latest`)
-- Either `container` (Apple Container, macOS 15+) or `docker` available in `PATH`
+- `docker` available in `PATH`
 
 ## Install
 
@@ -104,7 +104,7 @@ claw --timeout 600 "Run the full analysis"
 
 ### "neither 'container' nor 'docker' found"
 
-Install Docker Desktop or Apple Container (macOS 15+), or pass `--runtime` explicitly.
+Install Docker Desktop, or pass `--runtime docker` explicitly.
 
 ### "no secrets found in .env"
 

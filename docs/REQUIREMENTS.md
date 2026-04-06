@@ -50,7 +50,7 @@ Skills we'd like to see contributed:
 - `/add-signal` - Add Signal as a channel
 - `/add-matrix` - Add Matrix integration
 
-> **Note:** Telegram, Slack, Discord, Gmail, and Apple Container skills already exist. See the [skills documentation](https://docs.conclaw.dev/integrations/skills-system) for the full list.
+> **Note:** Telegram skill already exists. See the [skills documentation](https://docs.conclaw.dev/integrations/skills-system) for the full list.
 
 ---
 

@@ -12,4 +12,3 @@ The files in this directory are original design documents and developer referenc
 | [skills-as-branches.md](skills-as-branches.md) | [Skills system](https://docs.conclaw.dev/integrations/skills-system) |
 | [DEBUG_CHECKLIST.md](DEBUG_CHECKLIST.md) | [Troubleshooting](https://docs.conclaw.dev/advanced/troubleshooting) |
 | [docker-sandboxes.md](docker-sandboxes.md) | [Docker Sandboxes](https://docs.conclaw.dev/advanced/docker-sandboxes) |
-| [APPLE-CONTAINER-NETWORKING.md](APPLE-CONTAINER-NETWORKING.md) | [Container runtime](https://docs.conclaw.dev/advanced/container-runtime) |

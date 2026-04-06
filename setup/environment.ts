@@ -21,12 +21,6 @@ export async function run(_args: string[]): Promise<void> {
   const wsl = isWSL();
   const headless = isHeadless();
 
-  // Check Apple Container
-  let appleContainer: 'installed' | 'not_found' = 'not_found';
-  if (commandExists('container')) {
-    appleContainer = 'installed';
-  }
-
   // Check Docker
   let docker: 'running' | 'installed_not_running' | 'not_found' = 'not_found';
   if (commandExists('docker')) {
@@ -70,7 +64,6 @@ export async function run(_args: string[]): Promise<void> {
     {
       platform,
       wsl,
-      appleContainer,
       docker,
       hasEnv,
       hasAuth,
@@ -83,7 +76,6 @@ export async function run(_args: string[]): Promise<void> {
     PLATFORM: platform,
     IS_WSL: wsl,
     IS_HEADLESS: headless,
-    APPLE_CONTAINER: appleContainer,
     DOCKER: docker,
     HAS_ENV: hasEnv,
     HAS_AUTH: hasAuth,

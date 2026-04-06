@@ -9,7 +9,7 @@ Run setup steps automatically. Only pause when user action is required (channel 
 
 **Principle:** When something is broken or missing, fix it. Don't tell the user to go fix it themselves unless it genuinely requires their manual action (e.g. authenticating a channel, pasting a secret token). If a dependency is missing, install it. If a service won't start, diagnose and repair. Ask the user for permission when needed, then do the work.
 
-**UX Note:** Use `AskUserQuestion` for multiple-choice questions only (e.g. "Docker or Apple Container?"). Do NOT use it when free-text input is needed (e.g. tokens, paths) — just ask the question in plain text and wait for the user's reply.
+**UX Note:** Use `AskUserQuestion` for multiple-choice questions only. Do NOT use it when free-text input is needed (e.g. tokens, paths) — just ask the question in plain text and wait for the user's reply.
 
 ## 0. Git & Fork Setup
 
@@ -42,7 +42,7 @@ Run `npx tsx setup/index.ts --step environment` and parse the status block.
 
 - If HAS_AUTH=true → already configured, note for step 5
 - If HAS_REGISTERED_GROUPS=true → note existing config, offer to skip or reconfigure
-- Record APPLE_CONTAINER and DOCKER values for step 3
+- Record DOCKER value for step 3
 
 ## 2a. Timezone
 
@@ -55,13 +55,7 @@ Run `npx tsx setup/index.ts --step timezone` and parse the status block.
 
 ### 3a. Choose runtime
 
-Check the preflight results for `APPLE_CONTAINER` and `DOCKER`, and the PLATFORM from step 1.
-
-- PLATFORM=linux → Docker (only option)
-- PLATFORM=macos + APPLE_CONTAINER=installed → AskUserQuestion with two options:
-  1. **Docker (recommended)** — description: "Cross-platform, better credential management, well-tested."
-  2. **Apple Container (experimental)** — description: "Native macOS runtime. Requires advanced setup."
-- PLATFORM=macos + APPLE_CONTAINER=not_found → Docker
+Check the preflight results for `DOCKER` and the PLATFORM from step 1. Docker is the only supported runtime.
 
 ### 3a-docker. Install Docker
 
@@ -89,15 +83,6 @@ curl -fsSL onecli.sh/cli/install | sh
 Verify both installed: `onecli version`. If the command is not found, add `~/.local/bin` to PATH.
 
 Then configure and register credentials. See `/init-onecli` skill for the full credential setup flow.
-
-### 4b. Apple Container → Native Credential Proxy
-
-Apple Container is not compatible with OneCLI. Configure credentials in `.env`:
-
-AskUserQuestion: Do you want to use your **Claude subscription** (Pro/Max) or an **Anthropic API key**?
-
-For subscription: tell the user to run `claude setup-token` in another terminal. Once confirmed, add the token to `.env`.
-For API key: add to `.env`.
 
 ## 5. Set Up Telegram Channel
 

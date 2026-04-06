@@ -19,7 +19,7 @@ Each agent runs in its own container, inside a micro VM that is fully isolated f
 
 The sandbox provides a MITM proxy at `host.docker.internal:3128` that handles network access and injects your Anthropic API key automatically.
 
-> **Note:** This guide is based on a validated setup running on macOS (Apple Silicon) with WhatsApp. Other channels (Telegram, Slack, etc.) and environments (Windows WSL) may require additional proxy patches for their specific HTTP/WebSocket clients. The core patches (container runner, credential proxy, Dockerfile) apply universally — channel-specific proxy configuration varies.
+> **Note:** This guide is based on a validated setup running on macOS (Apple Silicon) with Telegram. Other environments (Linux, Windows WSL) may require additional proxy patches. The core patches (container runner, credential proxy, Dockerfile) apply universally.
 
 ## Prerequisites
 

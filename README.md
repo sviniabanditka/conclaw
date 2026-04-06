@@ -35,7 +35,7 @@ Then run `/setup`. Claude Code handles everything: dependencies, authentication,
 ## Philosophy
 
 - **Small enough to understand.** One process, a few source files, no microservices.
-- **Secure by isolation.** Agents run in Linux containers (Apple Container on macOS, or Docker) — commands execute inside the container, not on your host.
+- **Secure by isolation.** Agents run in Docker containers — commands execute inside the container, not on your host.
 - **Customization = code changes.** No configuration sprawl. Want different behavior? Modify the code directly.
 
 ## What It Supports
@@ -44,7 +44,7 @@ Then run `/setup`. Claude Code handles everything: dependencies, authentication,
 - **Isolated group context** — Each group has its own `CLAUDE.md` memory, filesystem, and container sandbox
 - **Scheduled tasks** — Recurring jobs that run Claude and message you back
 - **Web access** — Search and fetch content from the Web
-- **Container isolation** — Docker (macOS/Linux) or Apple Container (macOS)
+- **Container isolation** — Docker (macOS/Linux)
 - **Credential security** — Agents never hold raw API keys; requests route through a credential proxy
 - **Skills as branches** — Install optional features via `git merge` of skill branches
 
@@ -108,7 +108,7 @@ Claude resolves any merge conflicts automatically when you run the skill via `/a
 
 - macOS, Linux, or Windows (via WSL2)
 - Node.js 20+
-- [Apple Container](https://github.com/apple/container) (macOS) or [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
+- [Docker](https://docker.com/products/docker-desktop)
 
 ## Development
 
