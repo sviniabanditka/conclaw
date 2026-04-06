@@ -13,12 +13,24 @@ ConClaw is an AI assistant that runs Claude agents securely in isolated Linux co
 ## Quick Start
 
 ```bash
+gh repo fork sviniabanditka/conclaw --clone
 cd conclaw
-npm install
-npm run dev
+claude
 ```
 
-Then configure your channels and start chatting.
+<details>
+<summary>Without GitHub CLI</summary>
+
+1. Fork [sviniabanditka/conclaw](https://github.com/sviniabanditka/conclaw) on GitHub (click the Fork button)
+2. `git clone https://github.com/<your-username>/conclaw.git`
+3. `cd conclaw`
+4. `claude`
+
+</details>
+
+Then run `/setup`. Claude Code handles everything: dependencies, authentication, container setup and service configuration.
+
+> **Note:** Commands prefixed with `/` (like `/setup`, `/add-telegram`) are [Claude Code skills](https://code.claude.com/docs/en/skills). Type them inside the `claude` CLI prompt, not in your regular terminal. If you don't have Claude Code installed, get it at [claude.com/product/claude-code](https://claude.com/product/claude-code).
 
 ## Philosophy
 
