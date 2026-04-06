@@ -39,6 +39,7 @@ Four types of skills exist in ConClaw:
 | `/update-conclaw` | Bring upstream updates into a customized install |
 | `/update-skills` | Update installed skill branches from upstream |
 | `/init-onecli` | Install OneCLI Agent Vault and migrate `.env` credentials to it |
+| `/add-caveman` | Enable compressed communication style (lite/full/ultra/off) |
 
 ## Secrets / Credentials / Proxy (OneCLI)
 

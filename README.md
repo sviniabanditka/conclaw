@@ -79,6 +79,7 @@ Claude resolves any merge conflicts automatically when you run the skill via `/a
 | `/channel-formatting` | Feature (branch) | Convert Markdown to Telegram native formatting |
 | `/use-native-credential-proxy` | Feature (branch) | Replace OneCLI with .env-based credential proxy |
 | `/refresh-token` | Utility | Auto-refresh Claude OAuth tokens via cron |
+| `/add-caveman` | Operational | Compressed communication style (reduces tokens 50-75%) |
 | `/claw` | Utility | CLI tool for headless agent operation |
 | `/setup` | Operational | First-time installation and configuration |
 | `/update-conclaw` | Operational | Pull upstream updates safely |
