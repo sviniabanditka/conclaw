@@ -1,5 +1,6 @@
 import { Channel, NewMessage } from './types.js';
 import { formatLocalTime } from './timezone.js';
+import { parseTextStyles, ChannelType } from './text-styles.js';
 
 export function escapeXml(s: string): string {
   if (!s) return '';
@@ -16,14 +17,7 @@ export function formatMessages(
 ): string {
   const lines = messages.map((m) => {
     const displayTime = formatLocalTime(m.timestamp, timezone);
-    const replyAttr = m.reply_to_message_id
-      ? ` reply_to="${escapeXml(m.reply_to_message_id)}"`
-      : '';
-    const replySnippet =
-      m.reply_to_message_content && m.reply_to_sender_name
-        ? `\n  <quoted_message from="${escapeXml(m.reply_to_sender_name)}">${escapeXml(m.reply_to_message_content)}</quoted_message>`
-        : '';
-    return `<message sender="${escapeXml(m.sender_name)}" time="${escapeXml(displayTime)}"${replyAttr}>${replySnippet}${escapeXml(m.content)}</message>`;
+    return `<message sender="${escapeXml(m.sender_name)}" time="${escapeXml(displayTime)}">${escapeXml(m.content)}</message>`;
   });
 
   const header = `<context timezone="${escapeXml(timezone)}" />\n`;
@@ -35,10 +29,10 @@ export function stripInternalTags(text: string): string {
   return text.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
 }
 
-export function formatOutbound(rawText: string): string {
+export function formatOutbound(rawText: string, channel?: ChannelType): string {
   const text = stripInternalTags(rawText);
   if (!text) return '';
-  return text;
+  return channel ? parseTextStyles(text, channel) : text;
 }
 
 export function routeOutbound(
