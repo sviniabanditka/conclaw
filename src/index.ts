@@ -279,6 +279,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }, IDLE_TIMEOUT);
   };
 
+  // React to the last user message to signal processing status
+  const lastMsg = missedMessages[missedMessages.length - 1];
+  const reactToMsg = (emoji: string | null) =>
+    channel.setReaction?.(chatJid, lastMsg.id, emoji)?.catch(() => {});
+
+  await reactToMsg('👀');
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
@@ -302,11 +308,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
 
     if (result.status === 'success') {
+      await reactToMsg('👍');
       queue.notifyIdle(chatJid);
     }
 
     if (result.status === 'error') {
       hadError = true;
+      await reactToMsg('💔');
     }
   });
 
@@ -314,6 +322,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (idleTimer) clearTimeout(idleTimer);
 
   if (output === 'error' || hadError) {
+    if (!outputSentToUser) await reactToMsg('💔');
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (outputSentToUser) {
@@ -522,6 +531,11 @@ async function startMessageLoop(): Promise<void> {
             lastAgentTimestamp[chatJid] =
               messagesToSend[messagesToSend.length - 1].timestamp;
             saveState();
+            // React to the last message to signal it was received
+            const pipedLastMsg = messagesToSend[messagesToSend.length - 1];
+            channel
+              .setReaction?.(chatJid, pipedLastMsg.id, '👀')
+              ?.catch(() => {});
             // Show typing indicator while the container processes the piped message
             channel
               .setTyping?.(chatJid, true)
