@@ -35,6 +35,13 @@ export const LIVE_MESSAGE_BACKOFF_MS = parseInt(
 /** Telegram's per-message character cap. */
 export const TELEGRAM_MAX_LENGTH = 4096;
 export const SCHEDULER_POLL_INTERVAL = 60000;
+/**
+ * How often reminder tasks are re-derived from each group's schedule.md.
+ * The file is edited by hand and by the agent, and a stale reminder stays
+ * invisible until it fires at the wrong time, so re-check often — the sync is
+ * a file read and a diff.
+ */
+export const SCHEDULE_SYNC_INTERVAL = 60000;
 
 // Absolute paths needed for container mounts
 const PROJECT_ROOT = process.cwd();

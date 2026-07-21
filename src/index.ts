@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import { CronExpressionParser } from 'cron-parser';
 import { OneCLI } from '@onecli-sh/sdk';
 
 import {
@@ -15,6 +16,7 @@ import {
   LOGS_DIR,
   ONECLI_URL,
   POLL_INTERVAL,
+  SCHEDULE_SYNC_INTERVAL,
   SCRIPTS_DIR,
   TELEGRAM_MAX_LENGTH,
   TIMEZONE,
@@ -42,6 +44,7 @@ import {
   getAllSessions,
   getAllTasks,
   getLastBotMessageTimestamp,
+  getTasksForGroup,
   getMessagesSince,
   getNewMessages,
   getRouterState,
@@ -51,7 +54,14 @@ import {
   setSession,
   storeChatMetadata,
   storeMessage,
+  createTask,
+  updateTask,
+  deleteTask,
 } from './db.js';
+import {
+  scheduleFilePath,
+  syncScheduleFile,
+} from './schedule-sync.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
@@ -870,6 +880,44 @@ async function main(): Promise<void> {
     logger.fatal('No channels connected');
     process.exit(1);
   }
+
+  // Keep reminder tasks in step with each group's schedule.md. Re-runs on a
+  // timer because the file is edited by hand and by the agent, and a stale
+  // reminder is invisible until it fires at the wrong time.
+  const syncSchedules = () => {
+    for (const [jid, group] of Object.entries(registeredGroups)) {
+      let groupDir: string;
+      try {
+        groupDir = resolveGroupFolderPath(group.folder);
+      } catch {
+        continue;
+      }
+      try {
+        syncScheduleFile({
+          groupFolder: group.folder,
+          chatJid: jid,
+          scheduleFile: scheduleFilePath(groupDir),
+          getTasks: getTasksForGroup,
+          createTask,
+          updateTask,
+          deleteTask,
+          nextRunFor: (cron) => {
+            try {
+              return CronExpressionParser.parse(cron, { tz: TIMEZONE })
+                .next()
+                .toISOString();
+            } catch {
+              return null;
+            }
+          },
+        });
+      } catch (err) {
+        logger.error({ group: group.folder, err }, 'Schedule sync failed');
+      }
+    }
+  };
+  syncSchedules();
+  setInterval(syncSchedules, SCHEDULE_SYNC_INTERVAL).unref?.();
 
   // Watch the Claude OAuth credential. Lives here rather than as its own
   // process: a separate supervisor would itself need supervising, and if this
