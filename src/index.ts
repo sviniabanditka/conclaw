@@ -327,6 +327,37 @@ export async function finalizeReactions(
 }
 
 /**
+ * Record something the bot said, so the conversation is whole.
+ *
+ * Only the user's half was stored, which made the history unsearchable: you
+ * could find what you asked but never what you were told. The fetch that builds
+ * prompts already excludes `is_bot_message`, so recording replies cannot feed
+ * them back to the agent.
+ */
+function recordBotMessage(
+  chatJid: string,
+  text: string,
+  messageId?: string | null,
+): void {
+  if (!text.trim()) return;
+  try {
+    storeMessage({
+      id: messageId || `bot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      chat_jid: chatJid,
+      sender: ASSISTANT_NAME,
+      sender_name: ASSISTANT_NAME,
+      content: text,
+      timestamp: new Date().toISOString(),
+      is_from_me: false,
+      is_bot_message: true,
+    });
+  } catch (err) {
+    // History is a convenience; never fail a reply over it.
+    logger.debug({ chatJid, err }, 'Failed to record bot message');
+  }
+}
+
+/**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */
@@ -488,6 +519,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     live = newLive();
     if (!id || !channel.editMessage) {
       await channel.sendMessage(chatJid, text);
+      recordBotMessage(chatJid, text);
       return;
     }
     try {
@@ -499,6 +531,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         buttons: replyButtons(created.length > 0),
       });
       replyIndex.remember(chatJid, id, shown);
+      recordBotMessage(chatJid, shown, id);
       if (created.length > 0) repliedTasks.remember(chatJid, id, created.join(','));
       if (text.length > TELEGRAM_MAX_LENGTH) {
         await channel.sendMessage(chatJid, text.slice(TELEGRAM_MAX_LENGTH));
@@ -1165,7 +1198,10 @@ async function main(): Promise<void> {
         return;
       }
       const text = formatOutbound(rawText, channel.name as ChannelType);
-      if (text) await channel.sendMessage(jid, text);
+      if (text) {
+        await channel.sendMessage(jid, text);
+        recordBotMessage(jid, text);
+      }
     },
     sendReminder: async (jid, text, taskId) => {
       const channel = findChannel(channels, jid);
@@ -1177,9 +1213,13 @@ async function main(): Promise<void> {
           text,
           reminderButtons(taskId),
         );
-        if (id) return;
+        if (id) {
+          recordBotMessage(jid, text, id);
+          return;
+        }
       }
       await channel.sendMessage(jid, text);
+      recordBotMessage(jid, text);
     },
   });
   startIpcWatcher({
@@ -1188,7 +1228,9 @@ async function main(): Promise<void> {
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       const text = formatOutbound(rawText, channel.name as ChannelType);
       if (!text) return Promise.resolve();
-      return channel.sendMessage(jid, text);
+      return channel.sendMessage(jid, text).then(() => {
+        recordBotMessage(jid, text);
+      });
     },
     registeredGroups: () => registeredGroups,
     registerGroup,
