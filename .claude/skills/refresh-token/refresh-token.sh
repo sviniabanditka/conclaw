@@ -49,12 +49,19 @@ print(anthropic[0]['id'] if anthropic else '')
 if [ -n "$SECRET_ID" ]; then
   "$ONECLI" secrets update --id "$SECRET_ID" --value "$TOKEN" >/dev/null
 else
+  # Created as a generic secret with the header spelled out, not --type
+  # anthropic. The typed variant stopped resolving in the gateway — it lists
+  # fine and matches the host, but every request comes back
+  # `credential_not_found`, while this shape returns 200 with the same token.
   echo "No existing Anthropic secret found; creating one"
   "$ONECLI" secrets create \
-    --name Anthropic \
-    --type anthropic \
+    --name "Anthropic OAuth" \
+    --type generic \
     --value "$TOKEN" \
-    --host-pattern api.anthropic.com >/dev/null
+    --host-pattern api.anthropic.com \
+    --path-pattern '/*' \
+    --header-name Authorization \
+    --value-format 'Bearer {value}' >/dev/null
 fi
 
 echo "Token refreshed at $(date)"
