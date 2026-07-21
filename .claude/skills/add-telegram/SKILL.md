@@ -21,29 +21,14 @@ AskUserQuestion: Do you have a Telegram bot token, or do you need to create one?
 
 If they have one, collect it now. If not, we'll create one in Phase 3.
 
-## Phase 2: Apply Code Changes
+## Phase 2: Verify Code Is Present
 
-### Merge the skill branch
-
-```bash
-git fetch upstream skill/telegram
-git merge upstream/skill/telegram || {
-  git checkout --theirs package-lock.json
-  git add package-lock.json
-  git merge --continue
-}
-```
-
-> **Note:** `upstream` is the remote pointing to `sviniabanditka/conclaw`. If using a different remote name, substitute accordingly.
-
-This merges in:
+The Telegram channel ships on `main` — there is nothing to merge. The relevant code:
 - `src/channels/telegram.ts` (TelegramChannel class with self-registration via `registerChannel`)
 - `src/channels/telegram.test.ts` (unit tests with grammy mock)
-- `import './telegram.js'` appended to the channel barrel file `src/channels/index.ts`
-- `grammy` npm dependency in `package.json`
+- `import './telegram.js'` in the channel barrel `src/channels/index.ts`
+- `grammy` dependency in `package.json`
 - `TELEGRAM_BOT_TOKEN` in `.env.example`
-
-If the merge reports conflicts, resolve them by reading the conflicted files and understanding the intent of both sides.
 
 ### Validate code changes
 

@@ -24,40 +24,9 @@ test -f src/text-styles.ts && echo "already applied" || echo "not yet applied"
 
 If `already applied`, skip to Phase 3 (Verify).
 
-## Phase 2: Apply Code Changes
+## Phase 2: Verify Code Is Present
 
-### Ensure the upstream remote
-
-```bash
-git remote -v
-```
-
-If an `upstream` remote pointing to `https://github.com/sviniabanditka/conclaw.git` is missing,
-add it:
-
-```bash
-git remote add upstream https://github.com/sviniabanditka/conclaw.git
-```
-
-### Merge the skill branch
-
-```bash
-git fetch upstream skill/channel-formatting
-git merge upstream/skill/channel-formatting
-```
-
-If there are merge conflicts on `package-lock.json`, resolve them by accepting the incoming
-version and continuing:
-
-```bash
-git checkout --theirs package-lock.json
-git add package-lock.json
-git merge --continue
-```
-
-For any other conflict, read the conflicted file and reconcile both sides manually.
-
-This merge adds:
+Channel formatting ships on `main` — nothing to merge. The relevant code:
 
 - `src/text-styles.ts` — `parseTextStyles(text, channel)` for marker substitution
 - `src/router.ts` — `formatOutbound` gains an optional `channel` parameter; when provided

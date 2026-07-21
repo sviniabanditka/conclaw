@@ -19,18 +19,9 @@ test -f src/session-commands.ts && echo "Already applied" || echo "Not applied"
 
 If already applied, skip to Phase 3 (Verify).
 
-## Phase 2: Apply Code Changes
+## Phase 2: Verify Code Is Present
 
-Merge the skill branch:
-
-```bash
-git fetch upstream skill/compact
-git merge upstream/skill/compact
-```
-
-> **Note:** `upstream` is the remote pointing to `sviniabanditka/conclaw`. If using a different remote name, substitute accordingly.
-
-This adds:
+`/compact` ships on `main` — nothing to merge. The relevant code:
 - `src/session-commands.ts` (extract and authorize session commands)
 - `src/session-commands.test.ts` (unit tests for command parsing and auth)
 - Session command interception in `src/index.ts` (both `processGroupMessages` and `startMessageLoop`)

@@ -19,24 +19,11 @@ grep -q "transcribeAudio" src/channels/telegram.ts && echo "ALREADY_APPLIED" || 
 
 If `ALREADY_APPLIED`, skip to Phase 3 (Install Dependencies).
 
-## Phase 2: Apply Code Changes
+## Phase 2: Verify Code Is Present
 
-### Merge the skill branch
-
-```bash
-git fetch upstream skill/voice-transcription-telegram
-git merge upstream/skill/voice-transcription-telegram --no-edit || {
-  git checkout --theirs package-lock.json
-  git add package-lock.json
-  git merge --continue --no-edit
-}
-```
-
-> **Note:** `upstream` is the remote pointing to `sviniabanditka/conclaw`. If using a different remote name, substitute accordingly.
-
-This merges in:
+Voice transcription ships on `main` — nothing to merge. The relevant code:
 - `src/transcription.ts` — audio conversion (ffmpeg) + whisper.cpp transcription module
-- Modified `src/channels/telegram.ts` — voice handler calls transcription before delivering to agent
+- `src/channels/telegram.ts` — voice handler calls transcription before delivering to agent
 - `scripts/refresh-token.sh` — OAuth token auto-refresh script
 
 ### Validate

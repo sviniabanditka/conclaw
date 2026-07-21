@@ -48,7 +48,7 @@ All three (`claude`, `onecli`, `python3`) must be available. If any are missing,
 
 ### Copy the script
 
-If the script was included in a skill branch merge (e.g., `/add-voice-telegram`), it's already at `scripts/refresh-token.sh`. Otherwise, copy it from the skill directory:
+The script ships on `main` at `scripts/refresh-token.sh`. If it's missing for any reason, copy it from the skill directory:
 
 ```bash
 mkdir -p scripts

@@ -46,7 +46,7 @@ Then run `/setup`. Claude Code handles everything: dependencies, authentication,
 - **Web access** — Search and fetch content from the Web
 - **Container isolation** — Docker (macOS/Linux)
 - **Credential security** — Agents never hold raw API keys; requests route through a credential proxy
-- **Skills as branches** — Install optional features via `git merge` of skill branches
+- **Built-in skills** — Optional features ship on `main`; enable them by running `/add-<name>`
 
 ## Architecture
 
@@ -70,39 +70,40 @@ Key files:
 
 ## Skills
 
-ConClaw uses a **skill-as-branch** system. Each optional feature lives in its own git branch (`skill/*`). To install a skill, merge its branch into your repo:
+All skills ship on `main` — nothing to merge. Run `/<name>` to use one: **feature**
+skills (Telegram, voice, reactions, …) enable code that's already present by doing
+the auth/registration/config work; **operational** skills are instruction-only
+workflows; **utility** skills carry helper code alongside their `SKILL.md`.
 
-```bash
-git fetch upstream skill/<name>
-git merge upstream/skill/<name>
-```
-
-Claude resolves any merge conflicts automatically when you run the skill via `/add-<name>`.
+The one exception is `/use-native-credential-proxy`: it swaps OneCLI for a
+`.env`-based proxy, which is mutually exclusive with OneCLI, so it stays an
+opt-in `git merge` of the `skill/native-credential-proxy` branch.
 
 ### Available Skills
 
 | Skill | Type | Description |
 |-------|------|-------------|
-| `/add-telegram` | Feature (branch) | Add Telegram as a messaging channel |
-| `/add-telegram-swarm` | Operational | Add agent swarm/teams support to Telegram |
-| `/add-telegram-reactions` | Feature (branch) | Emoji reactions for processing status (👀→👍/💔) |
-| `/add-voice-telegram` | Feature (branch) | Voice message transcription via local whisper.cpp |
-| `/add-compact` | Feature (branch) | Add `/compact` command for context compaction |
-| `/channel-formatting` | Feature (branch) | Convert Markdown to Telegram native formatting |
-| `/use-native-credential-proxy` | Feature (branch) | Replace OneCLI with .env-based credential proxy |
+| `/add-telegram` | Feature | Add Telegram as a messaging channel |
+| `/add-telegram-swarm` | Feature | Add agent swarm/teams support to Telegram |
+| `/add-telegram-reactions` | Feature | Emoji reactions for processing status (👀→👍/💔) |
+| `/add-voice-telegram` | Feature | Voice message transcription via local whisper.cpp |
+| `/add-compact` | Feature | Add `/compact` command for context compaction |
+| `/channel-formatting` | Feature | Convert Markdown to Telegram native formatting |
+| `/add-gcal-tool` | Feature | Google Calendar as an MCP tool via OneCLI OAuth |
+| `/add-mnemon` | Feature | Persistent graph-based agent memory (mnemon) |
+| `/add-caveman` | Feature | Compressed communication style (reduces tokens 50-75%) |
+| `/use-native-credential-proxy` | Branch (opt-in) | Replace OneCLI with a `.env`-based credential proxy |
 | `/refresh-token` | Utility | Auto-refresh Claude OAuth tokens via cron |
-| `/add-caveman` | Operational | Compressed communication style (reduces tokens 50-75%) |
 | `/claw` | Utility | CLI tool for headless agent operation |
 | `/setup` | Operational | First-time installation and configuration |
 | `/update-conclaw` | Operational | Pull upstream updates safely |
-| `/update-skills` | Operational | Update installed skill branches |
 | `/customize` | Operational | Interactive customization guidance |
 | `/debug` | Operational | Container debugging guide |
 | `/init-onecli` | Operational | Install OneCLI Agent Vault |
 
-**Feature skills** add code via `git merge` of a `skill/*` branch.
-**Operational skills** are instruction-only workflows (SKILL.md on main).
-**Utility skills** ship code files alongside SKILL.md.
+**Feature skills** are built into `main`; running one wires up config/auth for code
+that already ships. **Operational skills** are instruction-only workflows.
+**Utility skills** ship helper code alongside their `SKILL.md`.
 
 ## Requirements
 

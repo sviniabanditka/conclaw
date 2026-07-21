@@ -25,23 +25,10 @@ grep -q "setReaction" src/channels/telegram.ts && echo "ALREADY_APPLIED" || echo
 
 If `ALREADY_APPLIED`, skip to Phase 3 (Verify).
 
-## Phase 2: Apply Code Changes
+## Phase 2: Verify Code Is Present
 
-### Merge the skill branch
-
-```bash
-git fetch upstream skill/telegram-reactions
-git merge upstream/skill/telegram-reactions --no-edit || {
-  git checkout --theirs package-lock.json
-  git add package-lock.json
-  git merge --continue --no-edit
-}
-```
-
-> **Note:** `upstream` is the remote pointing to `sviniabanditka/conclaw`. If using a different remote name, substitute accordingly.
-
-This merges in:
-- `src/types.ts` — adds optional `setReaction()` method to Channel interface
+Reactions ship on `main` — nothing to merge. The relevant code:
+- `src/types.ts` — optional `setReaction()` method on the Channel interface
 - `src/channels/telegram.ts` — implements `setReaction()` via grammy's `setMessageReaction` API
 - `src/index.ts` — calls reactions at message lifecycle points (processing, success, error)
 

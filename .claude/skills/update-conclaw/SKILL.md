@@ -110,11 +110,5 @@ Show commit list, ask user which hashes, apply: `git cherry-pick <hash1> <hash2>
 - `npm run build`
 - `npm test`
 
-# Step 6: Check for skill updates
-After the summary, check if skills are distributed as branches:
-- `git branch -r --list 'upstream/skill/*'`
-
-If any exist, offer to run `/update-skills`.
-
-# Step 7: Summary + rollback instructions
+# Step 6: Summary + rollback instructions
 Show backup tag, new HEAD, conflicts resolved. Tell user how to rollback and restart.

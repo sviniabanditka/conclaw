@@ -20,16 +20,21 @@ Single Node.js process with channel system. Channels (WhatsApp, Telegram, Slack,
 | `src/db.ts` | SQLite operations |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
 | `container/skills/` | Skills loaded inside agent containers (browser, status, formatting) |
-| `.claude/skills/*/SKILL.md` | Skill definitions (skill-as-branch system) |
+| `.claude/skills/*/SKILL.md` | Skill definitions (all shipped on `main`) |
 
 ## Skills
 
-Four types of skills exist in ConClaw:
+All skills ship on `main`. Four types exist in ConClaw:
 
-- **Feature skills** — merge a `skill/*` branch to add capabilities (e.g. `/add-telegram`, `/add-compact`)
+- **Feature skills** — code is already on `main`; running `/add-<name>` does the
+  auth/registration/config wiring (e.g. `/add-telegram`, `/add-compact`, `/add-gcal-tool`, `/add-mnemon`)
 - **Utility skills** — ship code files alongside SKILL.md (e.g. `/claw`)
-- **Operational skills** — instruction-only workflows on `main` (e.g. `/setup`, `/debug`)
+- **Operational skills** — instruction-only workflows (e.g. `/setup`, `/debug`)
 - **Container skills** — loaded inside agent containers at runtime (`container/skills/`)
+
+One opt-in exception, `/use-native-credential-proxy`, is still a `git merge` of
+the `skill/native-credential-proxy` branch — it replaces OneCLI and so can't ship
+enabled on `main`.
 
 | Skill | When to Use |
 |-------|-------------|
@@ -37,7 +42,6 @@ Four types of skills exist in ConClaw:
 | `/customize` | Adding integrations, changing behavior |
 | `/debug` | Container issues, logs, troubleshooting |
 | `/update-conclaw` | Bring upstream updates into a customized install |
-| `/update-skills` | Update installed skill branches from upstream |
 | `/init-onecli` | Install OneCLI Agent Vault and migrate `.env` credentials to it |
 | `/add-caveman` | Enable compressed communication style (lite/full/ultra/off) |
 
