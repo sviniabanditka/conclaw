@@ -143,9 +143,10 @@ spec:
 
               # Auto-start ConClaw after a pod recreate, so the bot survives
               # restarts (there is no systemd here). One backgrounded subshell
-              # waits for the dind daemon, then launches the bot and the vault
-              # sync daemon as node, each in its own detached tmux session (you
-              # can `tmux attach -t bot`). OneCLI recovers on its own via its
+              # waits for the dind daemon, then launches the bot, the token
+              # refresh loop and the vault sync daemon as node, each in its own
+              # detached tmux session (you can `tmux attach -t bot`). OneCLI
+              # recovers on its own via its
               # compose restart policy; ConClaw just needs the daemon up first.
               (
                 for _ in $(seq 1 30); do
@@ -154,6 +155,15 @@ spec:
                 done
                 if [ -f /workspace/conclaw/dist/index.js ] && [ -f /workspace/conclaw/.env ]; then
                   su node -c 'tmux has-session -t bot 2>/dev/null || tmux new -d -s bot "cd /workspace/conclaw && TMPDIR=/workspace/tmp exec npm start >>logs/run.log 2>&1"'
+                fi
+                # Claude OAuth tokens expire every ~7h and there is no cron here
+                # either, so the refresh loop needs starting too. It was once
+                # started by hand, did not survive a restart, and nothing said so
+                # until every reply began failing with 401 hours later. ConClaw's
+                # own watchdog now covers that gap, but this keeps the loop the
+                # primary mechanism and the watchdog the fallback.
+                if [ -x /workspace/conclaw/scripts/refresh-token-loop.sh ]; then
+                  su node -c 'tmux has-session -t refresh 2>/dev/null || tmux new -d -s refresh "cd /workspace/conclaw && exec scripts/refresh-token-loop.sh"'
                 fi
                 # Agents write to the mounted vault but hold no ssh key
                 # (.ssh is a blocked mount), so commit+push lives here on the host.
