@@ -118,6 +118,15 @@ const queue = new GroupQueue();
  */
 const replyIndex = new ReplyIndex();
 
+/**
+ * Tasks the agent created since the last reply, per chat, and the tasks each
+ * delivered reply is responsible for. Together they let a reply that announces
+ * new reminders offer to take them back — speech capture mishears, and undoing
+ * should cost one tap.
+ */
+const pendingCreatedTasks = new Map<string, string[]>();
+const repliedTasks = new ReplyIndex();
+
 /** Weather for the morning rundown; null when coordinates are not configured. */
 const weather =
   WEATHER_LATITUDE && WEATHER_LONGITUDE
@@ -440,11 +449,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
     try {
       const shown = text.slice(0, TELEGRAM_MAX_LENGTH);
+      const created = pendingCreatedTasks.get(chatJid) ?? [];
+      pendingCreatedTasks.delete(chatJid);
       await channel.editMessage(chatJid, id, shown, {
         markdown: true,
-        buttons: replyButtons(),
+        buttons: replyButtons(created.length > 0),
       });
       replyIndex.remember(chatJid, id, shown);
+      if (created.length > 0) repliedTasks.remember(chatJid, id, created.join(','));
       if (text.length > TELEGRAM_MAX_LENGTH) {
         await channel.sendMessage(chatJid, text.slice(TELEGRAM_MAX_LENGTH));
       }
@@ -907,6 +919,11 @@ async function main(): Promise<void> {
           groupFolder: group.folder,
           getText: (jid, id) => replyIndex.get(jid, id),
           createTask,
+          deleteTask,
+          getCreatedTasks: (jid, id) => {
+            const stored = repliedTasks.get(jid, id);
+            return stored ? stored.split(',').filter(Boolean) : [];
+          },
           editMessage: editText,
         });
         if (replyResult !== null) return replyResult;
@@ -1132,6 +1149,11 @@ async function main(): Promise<void> {
     },
     registeredGroups: () => registeredGroups,
     registerGroup,
+    onTaskCreated: (chatJid, taskId) => {
+      const list = pendingCreatedTasks.get(chatJid) ?? [];
+      list.push(taskId);
+      pendingCreatedTasks.set(chatJid, list);
+    },
     syncGroups: async (force: boolean) => {
       await Promise.all(
         channels

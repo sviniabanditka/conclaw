@@ -23,6 +23,12 @@ export interface IpcDeps {
     registeredJids: Set<string>,
   ) => void;
   onTasksChanged: () => void;
+  /**
+   * A task was created by the agent. Reported so the reply that announces it
+   * can offer an undo — voice capture in particular mishears, and a misheard
+   * reminder should cost one tap to remove, not a hunt through the task list.
+   */
+  onTaskCreated?: (chatJid: string, taskId: string) => void;
 }
 
 let ipcWatcherRunning = false;
@@ -279,6 +285,7 @@ export async function processTaskIpc(
           { taskId, sourceGroup, targetFolder, contextMode, kind },
           'Task created via IPC',
         );
+        deps.onTaskCreated?.(targetJid, taskId);
         deps.onTasksChanged();
       }
       break;

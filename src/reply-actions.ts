@@ -13,15 +13,27 @@
 import { MessageButton, ScheduledTask } from './types.js';
 
 const PREFIX = 'rl:';
+const UNDO_PREFIX = 'un:';
 
 /** Beyond this the index is trimmed oldest-first; only recent replies stay actionable. */
 export const MAX_TRACKED_REPLIES = 200;
 
-export function replyButtons(): MessageButton[] {
-  return [
+/**
+ * Buttons under a reply. `undoable` adds Undo when the turn created tasks —
+ * capture from speech mishears, and a misheard reminder should cost one tap to
+ * remove rather than a hunt through the task list.
+ */
+export function replyButtons(undoable = false): MessageButton[] {
+  const buttons: MessageButton[] = [
     { label: 'Remind 1h', action: `${PREFIX}60` },
     { label: 'Remind 3h', action: `${PREFIX}180` },
   ];
+  if (undoable) buttons.push({ label: 'Undo', action: `${UNDO_PREFIX}1` });
+  return buttons;
+}
+
+export function isUndoAction(action: string): boolean {
+  return action.startsWith(UNDO_PREFIX);
 }
 
 export function parseReplyAction(action: string): { minutes: number } | null {
@@ -66,6 +78,9 @@ export interface ReplyActionDeps {
   createTask: (task: Omit<ScheduledTask, 'last_run' | 'last_result'>) => void;
   editMessage: (chatJid: string, messageId: string, text: string) => Promise<void>;
   now?: () => number;
+  /** Tasks the turn behind this reply created, for Undo. */
+  getCreatedTasks?: (chatJid: string, messageId: string) => string[];
+  deleteTask?: (id: string) => void;
 }
 
 function describe(minutes: number): string {
@@ -79,6 +94,23 @@ export async function applyReplyAction(
   action: string,
   deps: ReplyActionDeps,
 ): Promise<string | null> {
+  if (isUndoAction(action)) {
+    const ids = deps.getCreatedTasks?.(chatJid, messageId) ?? [];
+    const text = deps.getText(chatJid, messageId);
+    if (ids.length === 0) {
+      return 'Nothing to undo';
+    }
+    for (const id of ids) deps.deleteTask?.(id);
+    if (text) {
+      await deps.editMessage(
+        chatJid,
+        messageId,
+        `${text}\n\n↩️ Отменено: ${ids.length}`,
+      );
+    }
+    return `Undone (${ids.length})`;
+  }
+
   const parsed = parseReplyAction(action);
   if (!parsed) return null;
 

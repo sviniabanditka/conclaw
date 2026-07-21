@@ -136,3 +136,50 @@ describe('applyReplyAction', () => {
     expect(d.createTask).not.toHaveBeenCalled();
   });
 });
+
+// --- undo ---
+
+describe('undo', () => {
+  function undoDeps(over: Partial<ReplyActionDeps> = {}): ReplyActionDeps {
+    return deps({
+      getCreatedTasks: () => ['task-a', 'task-b'],
+      deleteTask: vi.fn(),
+      ...over,
+    });
+  }
+
+  it('appears only when the turn created something', () => {
+    expect(replyButtons().map((b) => b.label)).not.toContain('Undo');
+    expect(replyButtons(true).map((b) => b.label)).toContain('Undo');
+  });
+
+  it('deletes every task the turn created', async () => {
+    const d = undoDeps();
+    const toast = await applyReplyAction(CHAT, MSG, 'un:1', d);
+
+    expect(toast).toBe('Undone (2)');
+    expect(calls(d.deleteTask).map((c) => c[0])).toEqual(['task-a', 'task-b']);
+  });
+
+  it('marks the reply so the undo is visible', async () => {
+    const d = undoDeps();
+    await applyReplyAction(CHAT, MSG, 'un:1', d);
+    const [, , text] = calls(d.editMessage)[0] as [string, string, string];
+    expect(text).toContain('Отменено: 2');
+  });
+
+  // After a restart the association is gone; say so rather than claiming success.
+  it('reports when there is nothing recorded to undo', async () => {
+    const d = undoDeps({ getCreatedTasks: () => [] });
+    const toast = await applyReplyAction(CHAT, MSG, 'un:1', d);
+
+    expect(toast).toBe('Nothing to undo');
+    expect(d.deleteTask).not.toHaveBeenCalled();
+  });
+
+  it('does not treat undo as a remind action', async () => {
+    const d = undoDeps();
+    await applyReplyAction(CHAT, MSG, 'un:1', d);
+    expect(d.createTask).not.toHaveBeenCalled();
+  });
+});
