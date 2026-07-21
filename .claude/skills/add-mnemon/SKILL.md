@@ -77,15 +77,24 @@ its script body reads:
 ```
 #!/bin/bash
 set -e
-mnemon setup --target claude-code --yes --global >&2
+mnemon setup --target claude-code --yes --global >&2 || echo "mnemon setup failed, continuing without memory" >&2
 cd /app && npx tsc --outDir /tmp/dist 2>&1 >&2
 ...
 ```
 
-Concretely, insert `mnemon setup --target claude-code --yes --global >&2\n`
+Concretely, insert
+`mnemon setup --target claude-code --yes --global >&2 || echo "mnemon setup failed, continuing without memory" >&2\n`
 immediately after the `set -e\n` in the printf format string. `>&2` routes
 mnemon's output to stderr (docker logs) so it never pollutes the JSON stdout the
 host parses.
+
+> **Why the `||` is load-bearing.** The entrypoint runs under `set -e`, and this
+> line sits *before* the `cat` that reads the handshake JSON. Bare, any setup
+> failure — corrupt store, a bad release, a permissions problem on the mount —
+> kills the container before it ever reads stdin, so the agent stops answering
+> entirely instead of merely losing memory. The fallback downgrades a memory
+> outage to exactly that: a memory outage. Verify it by shadowing `mnemon` with a
+> failing stub on `PATH` and confirming the entrypoint still reaches `cat`.
 
 ### 3. Install the structural guard test
 

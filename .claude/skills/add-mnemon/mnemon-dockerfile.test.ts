@@ -37,4 +37,12 @@ describe('container/Dockerfile installs and wires mnemon', () => {
   it('runs mnemon setup in the printf entrypoint', () => {
     expect(text).toMatch(/mnemon\s+setup\s+--target\s+claude-code/);
   });
+
+  // The entrypoint runs under `set -e`, and mnemon setup sits before the `cat`
+  // that reads the handshake JSON. Without a fallback, any setup failure kills
+  // the container before it ever reads stdin — the agent stops answering at all
+  // rather than merely losing memory.
+  it('degrades gracefully when mnemon setup fails', () => {
+    expect(text).toMatch(/mnemon setup --target claude-code[^\\]*\|\|/);
+  });
 });
