@@ -70,10 +70,17 @@ Key files:
 
 ## Skills
 
-All skills ship on `main` — nothing to merge. Run `/<name>` to use one: **feature**
-skills (Telegram, voice, reactions, …) enable code that's already present by doing
-the auth/registration/config work; **operational** skills are instruction-only
-workflows; **utility** skills carry helper code alongside their `SKILL.md`.
+Every skill *definition* ships on `main` — nothing to merge. Run `/<name>` to use
+one: **feature** skills (Telegram, voice, reactions, …) enable code that's already
+present by doing the auth/registration/config work; **patch** skills instead edit
+tracked source to add code that is deliberately *not* on `main`, so a clean
+install stays a menu rather than a bundle; **operational** skills are
+instruction-only workflows; **utility** skills carry helper code alongside their
+`SKILL.md`.
+
+A patch skill's edits are per-install state and should stay out of `main` —
+otherwise the feature is baked into every fresh clone. Fixes to the skill itself
+(`.claude/skills/<name>/`) do belong on `main`.
 
 The one exception is `/use-native-credential-proxy`: it swaps OneCLI for a
 `.env`-based proxy, which is mutually exclusive with OneCLI, so it stays an
@@ -89,8 +96,8 @@ opt-in `git merge` of the `skill/native-credential-proxy` branch.
 | `/add-voice-telegram` | Feature | Voice message transcription via local whisper.cpp |
 | `/add-compact` | Feature | Add `/compact` command for context compaction |
 | `/channel-formatting` | Feature | Convert Markdown to Telegram native formatting |
-| `/add-gcal-tool` | Feature | Google Calendar as an MCP tool via OneCLI OAuth |
-| `/add-mnemon` | Feature | Persistent graph-based agent memory (mnemon) |
+| `/add-gcal-tool` | Patch | Google Calendar as an MCP tool via OneCLI OAuth |
+| `/add-mnemon` | Patch | Persistent graph-based agent memory (mnemon) |
 | `/add-caveman` | Feature | Compressed communication style (reduces tokens 50-75%) |
 | `/use-native-credential-proxy` | Branch (opt-in) | Replace OneCLI with a `.env`-based credential proxy |
 | `/refresh-token` | Utility | Auto-refresh Claude OAuth tokens via cron |
