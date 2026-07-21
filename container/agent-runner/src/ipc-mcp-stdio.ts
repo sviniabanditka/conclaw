@@ -69,7 +69,7 @@ server.tool(
 
 server.tool(
   'schedule_task',
-  `Schedule a recurring or one-time task. The task will run as a full agent with access to all tools. Returns the task ID for future reference. To modify an existing task, use update_task instead.
+  `Schedule a recurring or one-time task. With kind=notify it just sends fixed text; with kind=agent (default) it runs as a full agent with access to all tools. Returns the task ID for future reference. To modify an existing task, use update_task instead.
 
 CONTEXT MODE - Choose based on task type:
 \u2022 "group": Task runs in the group's conversation context, with access to chat history. Use for tasks that need context about ongoing discussions, user preferences, or recent interactions.
@@ -106,11 +106,17 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
       .describe(
         'cron: "*/5 * * * *" | interval: milliseconds like "300000" | once: local timestamp like "2026-02-01T15:30:00" (no Z suffix!)',
       ),
+    kind: z
+      .enum(['agent', 'notify'])
+      .default('agent')
+      .describe(
+        'notify=send `prompt` verbatim as a message, no agent and no tokens — use for fixed-text reminders ("in 5 minutes: standup"). agent=run the prompt through a full agent, for anything that must look something up or decide what to say. Prefer notify whenever the text is known in advance: it delivers instantly instead of waiting on a container start.',
+      ),
     context_mode: z
       .enum(['group', 'isolated'])
       .default('group')
       .describe(
-        'group=runs with chat history and memory, isolated=fresh session (include context in prompt)',
+        'group=runs with chat history and memory, isolated=fresh session (include context in prompt). Ignored when kind=notify.',
       ),
     target_group_jid: z
       .string()
@@ -197,6 +203,7 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
       schedule_type: args.schedule_type,
       schedule_value: args.schedule_value,
       context_mode: args.context_mode || 'group',
+      kind: args.kind || 'agent',
       targetJid,
       createdBy: groupFolder,
       timestamp: new Date().toISOString(),

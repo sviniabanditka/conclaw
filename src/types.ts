@@ -66,6 +66,13 @@ export interface ScheduledTask {
   schedule_type: 'cron' | 'interval' | 'once';
   schedule_value: string;
   context_mode: 'group' | 'isolated';
+  /**
+   * 'agent' spawns a container and runs the prompt through the model.
+   * 'notify' sends `prompt` verbatim as a message — no container, no tokens.
+   * Fixed-text reminders do not need a model, and paying a container start
+   * plus a model call for one is both slow and a needless drain on rate limits.
+   */
+  kind?: 'agent' | 'notify';
   next_run: string | null;
   last_run: string | null;
   last_result: string | null;

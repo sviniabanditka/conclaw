@@ -75,6 +75,47 @@ export interface SchedulerDependencies {
   sendMessage: (jid: string, text: string) => Promise<void>;
 }
 
+/**
+ * Deliver a 'notify' task: send its prompt verbatim, no container, no model.
+ *
+ * Fixed-text reminders ("in 5 minutes — Standup") are the bulk of a personal
+ * assistant's schedule, and routing each through a container costs a cold start
+ * plus a model call — tens of seconds and rate-limit budget to emit a constant.
+ * This path answers in milliseconds and cannot fail on a model error.
+ */
+export async function runNotifyTask(
+  task: ScheduledTask,
+  deps: Pick<SchedulerDependencies, 'sendMessage'>,
+): Promise<void> {
+  const startTime = Date.now();
+  let error: string | null = null;
+
+  try {
+    await deps.sendMessage(task.chat_jid, task.prompt);
+    logger.info({ taskId: task.id }, 'Notify task sent');
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+    logger.error({ taskId: task.id, error }, 'Notify task failed to send');
+  }
+
+  logTaskRun({
+    task_id: task.id,
+    run_at: new Date().toISOString(),
+    duration_ms: Date.now() - startTime,
+    status: error ? 'error' : 'success',
+    result: error ? null : task.prompt.slice(0, 200),
+    error,
+  });
+
+  // Must advance next_run even on failure — a recurring task whose cursor never
+  // moves is re-selected on every scheduler tick and fires in a tight loop.
+  updateTaskAfterRun(
+    task.id,
+    computeNextRun(task),
+    error ? `Error: ${error}` : task.prompt.slice(0, 200),
+  );
+}
+
 async function runTask(
   task: ScheduledTask,
   deps: SchedulerDependencies,
@@ -261,6 +302,15 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
         // Re-check task status in case it was paused/cancelled
         const currentTask = getTaskById(task.id);
         if (!currentTask || currentTask.status !== 'active') {
+          continue;
+        }
+
+        // Notify tasks skip the per-chat queue. It serialises against the
+        // agent container, so a reminder could otherwise sit behind a session
+        // that stays alive for IDLE_TIMEOUT and arrive half an hour late —
+        // which for a time-based reminder is the same as not arriving.
+        if (currentTask.kind === 'notify') {
+          void runNotifyTask(currentTask, deps);
           continue;
         }
 

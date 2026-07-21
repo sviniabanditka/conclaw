@@ -162,6 +162,7 @@ export async function processTaskIpc(
     schedule_type?: string;
     schedule_value?: string;
     context_mode?: string;
+    kind?: string;
     script?: string;
     groupFolder?: string;
     chatJid?: string;
@@ -256,6 +257,10 @@ export async function processTaskIpc(
           data.context_mode === 'group' || data.context_mode === 'isolated'
             ? data.context_mode
             : 'isolated';
+        // Anything unrecognised falls back to 'agent' — the pre-existing
+        // behaviour, so an old or malformed payload can never silently
+        // downgrade a task into a fixed-text notification.
+        const kind = data.kind === 'notify' ? 'notify' : 'agent';
         createTask({
           id: taskId,
           group_folder: targetFolder,
@@ -265,12 +270,13 @@ export async function processTaskIpc(
           schedule_type: scheduleType,
           schedule_value: data.schedule_value,
           context_mode: contextMode,
+          kind,
           next_run: nextRun,
           status: 'active',
           created_at: new Date().toISOString(),
         });
         logger.info(
-          { taskId, sourceGroup, targetFolder, contextMode },
+          { taskId, sourceGroup, targetFolder, contextMode, kind },
           'Task created via IPC',
         );
         deps.onTasksChanged();
