@@ -97,6 +97,20 @@ export interface Channel {
   setReaction?(jid: string, messageId: string, emoji: string | null): Promise<void>;
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
+  // Optional: live-updating message. Channels that can edit a sent message
+  // implement both — send returns the id that edit then targets.
+  // Unlike sendMessage these do NOT split on the platform length limit; the
+  // caller keeps live content short and hands the full answer to sendMessage.
+  sendUpdatableMessage?(jid: string, text: string): Promise<string | null>;
+  // `markdown` is opt-in because live ticks carry half-written markup that
+  // would fail to parse; only the finished answer is worth formatting.
+  editMessage?(
+    jid: string,
+    messageId: string,
+    text: string,
+    opts?: { markdown?: boolean },
+  ): Promise<void>;
+  deleteMessage?(jid: string, messageId: string): Promise<void>;
 }
 
 // Callback type that channels use to deliver inbound messages

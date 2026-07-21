@@ -24,6 +24,12 @@ export interface TelegramChannelOpts {
 }
 
 /**
+ * How often to re-send the "typing…" chat action. Telegram expires it after
+ * roughly 5s, so refresh comfortably inside that window.
+ */
+const TYPING_REFRESH_MS = 4000;
+
+/**
  * Send a message with Telegram Markdown parse mode, falling back to plain text.
  * Claude's output naturally matches Telegram's Markdown v1 format:
  *   *bold*, _italic_, `code`, ```code blocks```, [links](url)
@@ -52,6 +58,9 @@ export class TelegramChannel implements Channel {
   private bot: Bot | null = null;
   private opts: TelegramChannelOpts;
   private botToken: string;
+  // Telegram clears a chat action after ~5s, so a single sendChatAction shows
+  // "typing…" only briefly. Keep one refresh timer per chat while typing is on.
+  private typingTimers = new Map<string, ReturnType<typeof setInterval>>();
 
   constructor(botToken: string, opts: TelegramChannelOpts) {
     this.botToken = botToken;
@@ -469,6 +478,7 @@ export class TelegramChannel implements Channel {
   }
 
   async disconnect(): Promise<void> {
+    this.clearAllTyping();
     if (this.bot) {
       this.bot.stop();
       this.bot = null;
@@ -477,12 +487,99 @@ export class TelegramChannel implements Channel {
   }
 
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
-    if (!this.bot || !isTyping) return;
+    if (!this.bot) return;
+
+    const existing = this.typingTimers.get(jid);
+    if (existing) {
+      clearInterval(existing);
+      this.typingTimers.delete(jid);
+    }
+    if (!isTyping) return;
+
+    const numericId = jid.replace(/^tg:/, '');
+    const send = async () => {
+      try {
+        await this.bot!.api.sendChatAction(numericId, 'typing');
+      } catch (err) {
+        logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
+      }
+    };
+
+    await send();
+    // Refresh before the ~5s expiry so the indicator stays up for the whole
+    // run. unref() so a stuck timer can never hold the process open.
+    const timer = setInterval(send, TYPING_REFRESH_MS);
+    timer.unref?.();
+    this.typingTimers.set(jid, timer);
+  }
+
+  /** Stop every typing refresh. Used on disconnect so no timer outlives the bot. */
+  private clearAllTyping(): void {
+    for (const timer of this.typingTimers.values()) clearInterval(timer);
+    this.typingTimers.clear();
+  }
+
+  /**
+   * Send a message whose id is returned so it can be edited later.
+   *
+   * Sent as plain text: live content is a partial answer, so its Markdown is
+   * routinely mid-token (`**bo`) and would fail to parse. The final answer goes
+   * out through the normal formatted path.
+   */
+  async sendUpdatableMessage(jid: string, text: string): Promise<string | null> {
+    if (!this.bot) return null;
     try {
       const numericId = jid.replace(/^tg:/, '');
-      await this.bot.api.sendChatAction(numericId, 'typing');
+      const sent = await this.bot.api.sendMessage(numericId, text);
+      return String(sent.message_id);
     } catch (err) {
-      logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
+      logger.debug({ jid, err }, 'Failed to send updatable Telegram message');
+      return null;
+    }
+  }
+
+  async editMessage(
+    jid: string,
+    messageId: string,
+    text: string,
+    opts: { markdown?: boolean } = {},
+  ): Promise<void> {
+    if (!this.bot) return;
+    const msgId = parseInt(messageId, 10);
+    if (isNaN(msgId)) return;
+    const numericId = jid.replace(/^tg:/, '');
+
+    if (opts.markdown) {
+      try {
+        await this.bot.api.editMessageText(numericId, msgId, text, {
+          parse_mode: 'Markdown',
+        });
+        return;
+      } catch (err) {
+        logger.debug({ jid, err }, 'Markdown edit failed, retrying as plain text');
+      }
+    }
+
+    try {
+      await this.bot.api.editMessageText(numericId, msgId, text);
+    } catch (err) {
+      // "message is not modified" is expected whenever content did not change
+      // between ticks, and a 429 is handled by the caller's backoff. Rethrow so
+      // the live-message throttle can tell those cases apart.
+      logger.debug({ jid, messageId, err }, 'Failed to edit Telegram message');
+      throw err;
+    }
+  }
+
+  async deleteMessage(jid: string, messageId: string): Promise<void> {
+    if (!this.bot) return;
+    const msgId = parseInt(messageId, 10);
+    if (isNaN(msgId)) return;
+    try {
+      const numericId = jid.replace(/^tg:/, '');
+      await this.bot.api.deleteMessage(numericId, msgId);
+    } catch (err) {
+      logger.debug({ jid, messageId, err }, 'Failed to delete Telegram message');
     }
   }
 

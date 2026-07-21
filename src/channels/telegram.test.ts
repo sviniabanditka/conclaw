@@ -1066,6 +1066,66 @@ describe('TelegramChannel', () => {
         channel.setTyping('tg:100200300', true),
       ).resolves.toBeUndefined();
     });
+
+    // Telegram drops the chat action after ~5s. A single sendChatAction made
+    // "typing…" vanish a few seconds into every run, long before the answer.
+    it('keeps refreshing typing until it is turned off', async () => {
+      vi.useFakeTimers();
+      try {
+        const channel = new TelegramChannel('test-token', createTestOpts());
+        await channel.connect();
+
+        await channel.setTyping('tg:100200300', true);
+        expect(currentBot().api.sendChatAction).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(12_000);
+        const whileTyping = currentBot().api.sendChatAction.mock.calls.length;
+        expect(whileTyping).toBeGreaterThan(1);
+
+        await channel.setTyping('tg:100200300', false);
+        await vi.advanceTimersByTimeAsync(12_000);
+        expect(currentBot().api.sendChatAction).toHaveBeenCalledTimes(
+          whileTyping,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not stack refresh timers when typing is set twice', async () => {
+      vi.useFakeTimers();
+      try {
+        const channel = new TelegramChannel('test-token', createTestOpts());
+        await channel.connect();
+
+        await channel.setTyping('tg:100200300', true);
+        await channel.setTyping('tg:100200300', true);
+        currentBot().api.sendChatAction.mockClear();
+
+        await vi.advanceTimersByTimeAsync(4000);
+        // One timer, not two — otherwise every re-entry doubles the API rate.
+        expect(currentBot().api.sendChatAction).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stops refreshing after disconnect', async () => {
+      vi.useFakeTimers();
+      try {
+        const channel = new TelegramChannel('test-token', createTestOpts());
+        await channel.connect();
+        await channel.setTyping('tg:100200300', true);
+
+        await channel.disconnect();
+        currentBot().api.sendChatAction.mockClear();
+        await vi.advanceTimersByTimeAsync(12_000);
+
+        expect(currentBot().api.sendChatAction).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   // --- Bot commands ---
