@@ -77,6 +77,10 @@ describe('parseReplyAction', () => {
     }
   });
 
+  it('labels the buttons with emoji and the delay', () => {
+    expect(replyButtons().map((b) => b.label)).toEqual(['⏱️ 1h', '⏱️ 3h']);
+  });
+
   it('ignores actions that are not ours', () => {
     expect(parseReplyAction('sn:task-1')).toBeNull();
     expect(parseReplyAction('rl:abc')).toBeNull();
@@ -149,8 +153,8 @@ describe('undo', () => {
   }
 
   it('appears only when the turn created something', () => {
-    expect(replyButtons().map((b) => b.label)).not.toContain('Undo');
-    expect(replyButtons(true).map((b) => b.label)).toContain('Undo');
+    expect(replyButtons().map((b) => b.label)).not.toContain('↩️');
+    expect(replyButtons(true).map((b) => b.label)).toContain('↩️');
   });
 
   it('deletes every task the turn created', async () => {

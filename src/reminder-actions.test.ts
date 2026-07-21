@@ -68,11 +68,14 @@ describe('callback payloads', () => {
     expect(parseAction(stop.action)).toEqual({ type: 'stop', taskId: TASK_ID });
   });
 
-  it('uses English labels', () => {
-    expect(reminderButtons(TASK_ID).map((b) => b.label)).toEqual([
-      'Snooze',
-      'Stop',
-    ]);
+  it('labels the buttons with emoji', () => {
+    expect(reminderButtons(TASK_ID).map((b) => b.label)).toEqual(['😴 10m', '✅']);
+  });
+
+  // The label promises a delay the action has to keep, so it cannot be
+  // hardcoded independently of the duration actually used.
+  it('shows the snooze duration it will actually use', () => {
+    expect(reminderButtons(TASK_ID, 25)[0].label).toBe('😴 25m');
   });
 
   // Telegram rejects callback_data over 64 bytes, which would break the button

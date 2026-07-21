@@ -24,11 +24,14 @@ export const MAX_TRACKED_REPLIES = 200;
  * remove rather than a hunt through the task list.
  */
 export function replyButtons(undoable = false): MessageButton[] {
+  // Emoji rather than words: the two remind buttons differ only in their
+  // delay, so the verb was repeated noise and the number is the whole message.
+  // ↩️ matches the ↩️ the reply is rewritten with once Undo is tapped.
   const buttons: MessageButton[] = [
-    { label: 'Remind 1h', action: `${PREFIX}60` },
-    { label: 'Remind 3h', action: `${PREFIX}180` },
+    { label: '⏱️ 1h', action: `${PREFIX}60` },
+    { label: '⏱️ 3h', action: `${PREFIX}180` },
   ];
-  if (undoable) buttons.push({ label: 'Undo', action: `${UNDO_PREFIX}1` });
+  if (undoable) buttons.push({ label: '↩️', action: `${UNDO_PREFIX}1` });
   return buttons;
 }
 

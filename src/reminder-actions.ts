@@ -18,14 +18,25 @@ const STOP_PREFIX = 'st:';
 
 export const DEFAULT_SNOOZE_MINUTES = 10;
 
-/** Buttons attached to a reminder. Labels are the user-facing English UI. */
-export function reminderButtons(taskId: string): {
+/**
+ * Buttons attached to a reminder.
+ *
+ * Labelled with emoji rather than words: a reminder arrives mid-something and
+ * gets acted on at a glance, where a symbol reads faster than a verb. The
+ * snooze button carries its duration because "how long" is the one thing the
+ * emoji cannot say, and ✅ matches the ✅ the message is rewritten to, so the
+ * button and its outcome are visibly the same thing.
+ */
+export function reminderButtons(
+  taskId: string,
+  snoozeMinutes: number = DEFAULT_SNOOZE_MINUTES,
+): {
   label: string;
   action: string;
 }[] {
   return [
-    { label: 'Snooze', action: `${SNOOZE_PREFIX}${taskId}` },
-    { label: 'Stop', action: `${STOP_PREFIX}${taskId}` },
+    { label: `😴 ${snoozeMinutes}m`, action: `${SNOOZE_PREFIX}${taskId}` },
+    { label: '✅', action: `${STOP_PREFIX}${taskId}` },
   ];
 }
 
