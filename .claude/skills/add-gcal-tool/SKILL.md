@@ -16,9 +16,10 @@ secret — same invariant OneCLI enforces for every credential.
 multi-account and is actively maintained; `@gongrzhe/server-calendar-autoauth-mcp`
 only does the `primary` calendar with 5 tools.
 
-Tools surface as `mcp__calendar__<name>` (`list-calendars`, `list-events`,
-`search-events`, `create-event`, `update-event`, `delete-event`, `get-event`,
-`get-freebusy`, `get-current-time`, …).
+Tools surface as `mcp__calendar__<name>`. This skill wires the **read-only** set
+(`list-calendars`, `list-events`, `search-events`, `get-event`, `get-freebusy`,
+`get-current-time`); the write tools (`create-event`, `update-event`,
+`delete-event`) exist but are deliberately not granted — see Phase 2.
 
 ## How this differs from NanoClaw's version
 
@@ -149,13 +150,26 @@ RUN npm install -g "@cocal/google-calendar-mcp@${CALENDAR_MCP_VERSION}"
 Edit `container/agent-runner/src/index.ts` inside the `query({ options: {...} })`
 call. Two edits:
 
-**a.** In `allowedTools`, add `mcp__calendar__*` next to the existing
+**a.** In `allowedTools`, list the calendar tools next to the existing
 `'mcp__conclaw__*',` entry:
 
 ```ts
         'mcp__conclaw__*',
-        'mcp__calendar__*',
+        'mcp__calendar__list-calendars',
+        'mcp__calendar__list-events',
+        'mcp__calendar__search-events',
+        'mcp__calendar__get-event',
+        'mcp__calendar__get-freebusy',
+        'mcp__calendar__get-current-time',
 ```
+
+> **Read-only by default, and listed tool by tool for a reason.** The obvious
+> `mcp__calendar__*` also grants `create-event`, `update-event` and
+> `delete-event`. A wrong answer is a nuisance the user corrects in the next
+> message; a deleted meeting is damage other people notice, that the agent has
+> no way to undo, and that nobody may connect back to the bot. Ask before adding
+> the write tools, and add them individually — a wildcard silently re-grants
+> everything the next time the server ships a new tool.
 
 **b.** In the `mcpServers` map, add a `calendar` server alongside `conclaw`:
 
@@ -240,7 +254,8 @@ npx vitest run src/gcal-dockerfile.test.ts src/gcal-agent-runner.test.ts
 
 `gcal-dockerfile.test.ts` asserts the `ARG` + `npm install -g` line exist.
 `gcal-agent-runner.test.ts` asserts the agent-runner registers the `calendar`
-server and allows `mcp__calendar__*`. Drop either Phase 2 edit and a test goes red.
+server and allows the read-only tools. Drop either Phase 2 edit and a test goes
+red; so does a wildcard that would hand the agent write access.
 
 ### 4. Rebuild the image
 
@@ -332,7 +347,7 @@ Common signals:
 - `app_not_connected` **from OneCLI** → interception works; the provider just
   isn't connected. Finish Phase 1 (or check the agent's secret mode).
 - "I don't have calendar tools" → agent-runner edits missing or image stale
-  (`mcp__calendar__*` not in `allowedTools`, or `calendar` not in `mcpServers`).
+  (calendar tools missing from `allowedTools`, or `calendar` not in `mcpServers`).
 
 To test the server in isolation without going through an agent turn, drive it
 over raw stdio in the built image (swap the `-e`/`-v` flags for the ones

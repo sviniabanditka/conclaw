@@ -6,7 +6,8 @@
  * SDK's query(). Registering calendar means editing that object literal. It is
  * container-runner source (a different tsconfig, not built by the host `tsc`), so
  * a text guard is the red-on-drift signal: drop the `calendar` server or the
- * `mcp__calendar__*` allow-pattern and calendar tools silently stop working.
+ * read-only allow-list and calendar tools silently stop working — or, worse,
+ * a wildcard creeps back in and hands the agent write access.
  */
 import fs from 'fs';
 import path from 'path';
@@ -24,8 +25,28 @@ function agentRunner(): string {
 describe('agent-runner wires the Google Calendar MCP server', () => {
   const text = agentRunner();
 
-  it('allows the mcp__calendar__* tool pattern', () => {
-    expect(text).toContain('mcp__calendar__*');
+  it('allows only read-only calendar tools', () => {
+    for (const tool of [
+      'mcp__calendar__list-calendars',
+      'mcp__calendar__list-events',
+      'mcp__calendar__get-event',
+    ]) {
+      expect(text).toContain(tool);
+    }
+  });
+
+  // `mcp__calendar__*` would also grant create-event, update-event and
+  // delete-event. A wrong answer is a nuisance; a deleted meeting is damage
+  // other people notice and the agent cannot undo.
+  it('never grants calendar write access', () => {
+    const allowed = text.slice(
+      text.indexOf('allowedTools'),
+      text.indexOf('env: sdkEnv'),
+    );
+    expect(allowed).not.toMatch(/mcp__calendar__\*/);
+    for (const tool of ['create-event', 'update-event', 'delete-event']) {
+      expect(allowed).not.toContain(`mcp__calendar__${tool}`);
+    }
   });
 
   it('registers a calendar MCP server running google-calendar-mcp', () => {
