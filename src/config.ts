@@ -18,6 +18,22 @@ export const ASSISTANT_HAS_OWN_NUMBER =
   (process.env.ASSISTANT_HAS_OWN_NUMBER ||
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
 export const POLL_INTERVAL = 2000;
+
+/**
+ * Repaint cadence for the live "working…" message, and the slower cadence it
+ * falls back to once the platform rate-limits an edit. Editing is far more
+ * restricted than sending, so this only ever backs off, never speeds up.
+ */
+export const LIVE_MESSAGE_INTERVAL_MS = parseInt(
+  process.env.LIVE_MESSAGE_INTERVAL_MS || '1000',
+  10,
+);
+export const LIVE_MESSAGE_BACKOFF_MS = parseInt(
+  process.env.LIVE_MESSAGE_BACKOFF_MS || '2000',
+  10,
+);
+/** Telegram's per-message character cap. */
+export const TELEGRAM_MAX_LENGTH = 4096;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
 // Absolute paths needed for container mounts

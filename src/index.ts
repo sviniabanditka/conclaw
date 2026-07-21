@@ -9,9 +9,12 @@ import {
   getTriggerPattern,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  LIVE_MESSAGE_BACKOFF_MS,
+  LIVE_MESSAGE_INTERVAL_MS,
   MAX_MESSAGES_PER_PROMPT,
   ONECLI_URL,
   POLL_INTERVAL,
+  TELEGRAM_MAX_LENGTH,
   TIMEZONE,
 } from './config.js';
 import './channels/index.js';
@@ -21,10 +24,12 @@ import {
 } from './channels/registry.js';
 import {
   ContainerOutput,
+  ProgressEvent,
   runContainerAgent,
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
+import { LiveMessage } from './live-message.js';
 import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
@@ -215,6 +220,54 @@ export function _setRegisteredGroups(
 }
 
 /**
+ * Message IDs currently showing the 👀 "processing" reaction, per chat.
+ *
+ * A run can mark more than one message: follow-ups sent while the container is
+ * still working get piped in and marked too (see the piping path in
+ * startMessageLoop). Tracking them per chat is what lets the final verdict
+ * clear *every* one of them — marking only the batch's last message left the
+ * piped ones stuck on 👀 forever.
+ */
+const pendingReactions = new Map<string, Set<string>>();
+
+/** Mark a message as being processed, remembering it for later finalization. */
+export function markProcessing(
+  channel: Channel | undefined,
+  chatJid: string,
+  messageId: string,
+): void {
+  let ids = pendingReactions.get(chatJid);
+  if (!ids) {
+    ids = new Set();
+    pendingReactions.set(chatJid, ids);
+  }
+  ids.add(messageId);
+  channel?.setReaction?.(chatJid, messageId, '👀')?.catch(() => {});
+}
+
+/**
+ * Replace every pending 👀 in this chat with the run's verdict.
+ *
+ * Must run exactly once per run, on every exit path including throws —
+ * otherwise the eyes stay up and the user cannot tell a working bot from a
+ * dead one.
+ */
+export async function finalizeReactions(
+  channel: Channel | undefined,
+  chatJid: string,
+  emoji: '👍' | '💔',
+): Promise<void> {
+  const ids = pendingReactions.get(chatJid);
+  pendingReactions.delete(chatJid);
+  if (!ids || !channel?.setReaction) return;
+  await Promise.all(
+    [...ids].map((id) =>
+      channel.setReaction!(chatJid, id, emoji).catch(() => {}),
+    ),
+  );
+}
+
+/**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */
@@ -310,48 +363,121 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // React to the last user message to signal processing status
   const lastMsg = missedMessages[missedMessages.length - 1];
-  const reactToMsg = (emoji: string | null) =>
-    channel.setReaction?.(chatJid, lastMsg.id, emoji)?.catch(() => {});
+  markProcessing(channel, chatJid, lastMsg.id);
 
-  await reactToMsg('👀');
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
+  // Live message: only if the channel can edit. Elsewhere it stays inert and
+  // results are delivered as ordinary messages, exactly as before.
+  const newLive = () =>
+    new LiveMessage({
+      send: (text) =>
+        channel.sendUpdatableMessage?.(chatJid, text) ?? Promise.resolve(null),
+      edit: (id, text) =>
+        channel.editMessage?.(chatJid, id, text) ?? Promise.resolve(),
+      intervalMs: LIVE_MESSAGE_INTERVAL_MS,
+      backoffMs: LIVE_MESSAGE_BACKOFF_MS,
+    });
+  // Each answer consumes its live message; the next turn of the same container
+  // (a piped follow-up, or another agent-teams result) gets a fresh one.
+  let live = newLive();
+  // Show the spinner immediately — container start alone is several seconds.
+  live.start();
+
+  const deliver = async (text: string): Promise<void> => {
+    const id = await live.finish();
+    live = newLive();
+    if (!id || !channel.editMessage) {
+      await channel.sendMessage(chatJid, text);
+      return;
+    }
+    try {
+      await channel.editMessage(chatJid, id, text.slice(0, TELEGRAM_MAX_LENGTH), {
+        markdown: true,
+      });
+      if (text.length > TELEGRAM_MAX_LENGTH) {
+        await channel.sendMessage(chatJid, text.slice(TELEGRAM_MAX_LENGTH));
       }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
+    } catch (err) {
+      // Editing failed (message deleted, too old, …) — the answer still has to
+      // reach the user, so fall back to a fresh message.
+      logger.debug({ chatJid, err }, 'Live message edit failed, sending normally');
+      await channel.sendMessage(chatJid, text);
+    }
+  };
+
+  let output: 'success' | 'error';
+  try {
+    output = await runAgent(group, prompt, chatJid, async (result) => {
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
+        if (text) {
+          await deliver(text);
+          outputSentToUser = true;
+        }
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
+      }
+
+      // Settle per result, not in the finally below. The container outlives the
+      // answer by up to IDLE_TIMEOUT waiting for follow-ups, so anything tied to
+      // the run's end shows stale state — "typing…" and 👀 both lingering for
+      // half an hour after the reply already landed. The piping path re-arms
+      // both when new input arrives.
+      if (result.status === 'success') {
+        await channel.setTyping?.(chatJid, false).catch(() => {});
+        await finalizeReactions(channel, chatJid, '👍');
+        queue.notifyIdle(chatJid);
+      }
+
+      if (result.status === 'error') {
+        hadError = true;
+        await channel.setTyping?.(chatJid, false).catch(() => {});
+        await finalizeReactions(channel, chatJid, '💔');
+      }
+    }, (event) => live.onProgress(event));
+  } catch (err) {
+    // A throw here used to skip the reaction cleanup below, stranding 👀.
+    logger.error({ group: group.name, err }, 'Agent run threw');
+    output = 'error';
+  } finally {
+    // Safety net only — the common path already settled per result above. This
+    // catches runs that ended without ever producing one (crash, timeout, kill),
+    // and is a no-op when nothing is left pending.
+    await channel.setTyping?.(chatJid, false).catch(() => {});
+    if (idleTimer) clearTimeout(idleTimer);
+
+    // If the run ended without ever delivering a result, the live message is
+    // still sitting there mid-spinner. Leave a readable trace instead of a
+    // frozen "Thinking…".
+    const orphan = await live.finish();
+    if (orphan && channel.editMessage) {
+      const streamed = live.streamedText.trim();
+      await channel
+        .editMessage(chatJid, orphan, streamed || '⚠️ No response', {
+          markdown: false,
+        })
+        .catch(() => {});
+      if (streamed) outputSentToUser = true;
     }
 
-    if (result.status === 'success') {
-      await reactToMsg('👍');
-      queue.notifyIdle(chatJid);
-    }
-
-    if (result.status === 'error') {
-      hadError = true;
-      await reactToMsg('💔');
-    }
-  });
-
-  await channel.setTyping?.(chatJid, false);
-  if (idleTimer) clearTimeout(idleTimer);
+    await finalizeReactions(
+      channel,
+      chatJid,
+      hadError || output! === 'error' ? '💔' : '👍',
+    );
+  }
 
   if (output === 'error' || hadError) {
-    if (!outputSentToUser) await reactToMsg('💔');
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (outputSentToUser) {
@@ -379,6 +505,7 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  onProgress?: (event: ProgressEvent) => void,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -434,6 +561,7 @@ async function runAgent(
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
       wrappedOnOutput,
+      onProgress,
     );
 
     if (output.newSessionId) {
@@ -562,11 +690,11 @@ async function startMessageLoop(): Promise<void> {
             lastAgentTimestamp[chatJid] =
               messagesToSend[messagesToSend.length - 1].timestamp;
             saveState();
-            // React to the last message to signal it was received
+            // React to the last message to signal it was received. Registering
+            // it means the in-flight run's finalizer will clear it too — before
+            // this, a piped message kept 👀 forever.
             const pipedLastMsg = messagesToSend[messagesToSend.length - 1];
-            channel
-              .setReaction?.(chatJid, pipedLastMsg.id, '👀')
-              ?.catch(() => {});
+            markProcessing(channel, chatJid, pipedLastMsg.id);
             // Show typing indicator while the container processes the piped message
             channel
               .setTyping?.(chatJid, true)
