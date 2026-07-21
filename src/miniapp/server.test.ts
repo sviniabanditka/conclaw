@@ -191,6 +191,13 @@ describe('app shell', () => {
     expect(csp).toContain('https://telegram.org');
   });
 
+  // Scripts are bundled now; nothing inline should be permitted to run.
+  it('does not allow inline scripts', async () => {
+    const csp = (await get('/')).headers.get('content-security-policy') || '';
+    expect(csp).toContain("script-src 'self' https://telegram.org");
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+  });
+
   it('answers health checks without auth and without leaking state', async () => {
     const res = await get('/healthz');
     expect(res.status).toBe(200);
@@ -404,6 +411,46 @@ describe('tasks', () => {
       deleted: true,
     });
     expect(deleted).toContain('task-1');
+  });
+});
+
+describe('assets', () => {
+  // The only route that turns part of a URL into a filesystem path.
+  it('refuses to escape the assets directory', async () => {
+    for (const attempt of [
+      '/assets/../index.html',
+      '/assets/..%2f..%2fpackage.json',
+      '/assets/../../../../etc/passwd',
+      '/assets/',
+    ]) {
+      expect((await get(attempt)).status, attempt).toBe(404);
+    }
+  });
+
+  it('refuses an extension the bundler never emits', async () => {
+    expect((await get('/assets/anything.ts')).status).toBe(404);
+    expect((await get('/assets/anything.json')).status).toBe(404);
+  });
+
+  it('404s a hashed name that does not exist', async () => {
+    expect((await get('/assets/index-deadbeef.js')).status).toBe(404);
+  });
+
+  it('serves the real bundle the shell asks for, cacheable forever', async () => {
+    const shell = await (await get('/')).text();
+    const name = /\/assets\/([\w.-]+\.js)/.exec(shell)?.[1];
+    expect(name, 'shell should reference a built bundle').toBeTruthy();
+
+    const res = await get(`/assets/${name}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/javascript');
+    // Content-hashed, so the file at this name can never change.
+    expect(res.headers.get('cache-control')).toContain('immutable');
+  });
+
+  it('does not accept writes to an asset path', async () => {
+    const res = await fetch(base + '/assets/x.js', { method: 'POST' });
+    expect(res.status).toBe(405);
   });
 });
 

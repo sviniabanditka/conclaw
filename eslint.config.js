@@ -4,7 +4,17 @@ import tseslint from 'typescript-eslint'
 import noCatchAll from 'eslint-plugin-no-catch-all'
 
 export default [
-  { ignores: ['node_modules/', 'dist/', 'container/', 'groups/'] },
+  {
+    ignores: [
+      'node_modules/',
+      'dist/',
+      'container/',
+      'groups/',
+      // Vite's output. Minified, generated, and under src/ only because that
+      // is where the server reads it from.
+      'src/miniapp/public/',
+    ],
+  },
   { files: ['src/**/*.{js,ts}'] },
   { languageOptions: { globals: globals.node } },
   pluginJs.configs.recommended,

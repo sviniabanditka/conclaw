@@ -1,0 +1,85 @@
+@import 'tailwindcss';
+
+/**
+ * shadcn's design tokens, driven by Telegram's theme.
+ *
+ * A Mini App sits inside a client whose look the user already chose — light,
+ * dark, or one of Telegram's accent themes — and an app that ignores that
+ * reads as a web page bolted into a chat. Telegram publishes its palette as
+ * `--tg-theme-*` custom properties on the document, so every shadcn token is
+ * derived from one. The fallbacks are what you get opening the page outside
+ * Telegram, and are the only place a colour is chosen by us.
+ *
+ * Telegram has no border or ring colour, so those are mixed from the hint
+ * colour, which is the one token guaranteed to contrast with the background in
+ * both light and dark themes.
+ */
+@theme inline {
+  --color-background: var(--tg-theme-bg-color, oklch(0.21 0.02 250));
+  --color-foreground: var(--tg-theme-text-color, oklch(0.97 0 0));
+
+  --color-card: var(--tg-theme-section-bg-color, var(--tg-theme-secondary-bg-color, oklch(0.26 0.02 250)));
+  --color-card-foreground: var(--tg-theme-text-color, oklch(0.97 0 0));
+
+  --color-popover: var(--tg-theme-section-bg-color, var(--tg-theme-secondary-bg-color, oklch(0.26 0.02 250)));
+  --color-popover-foreground: var(--tg-theme-text-color, oklch(0.97 0 0));
+
+  --color-primary: var(--tg-theme-button-color, oklch(0.6 0.12 250));
+  --color-primary-foreground: var(--tg-theme-button-text-color, oklch(1 0 0));
+
+  --color-secondary: var(--tg-theme-secondary-bg-color, oklch(0.26 0.02 250));
+  --color-secondary-foreground: var(--tg-theme-text-color, oklch(0.97 0 0));
+
+  --color-muted: var(--tg-theme-secondary-bg-color, oklch(0.26 0.02 250));
+  --color-muted-foreground: var(--tg-theme-hint-color, oklch(0.65 0.02 250));
+
+  --color-accent: var(--tg-theme-secondary-bg-color, oklch(0.26 0.02 250));
+  --color-accent-foreground: var(--tg-theme-text-color, oklch(0.97 0 0));
+
+  --color-destructive: var(--tg-theme-destructive-text-color, oklch(0.62 0.19 26));
+  --color-link: var(--tg-theme-link-color, oklch(0.72 0.11 240));
+
+  --color-border: color-mix(in oklab, var(--tg-theme-hint-color, oklch(0.65 0.02 250)) 22%, transparent);
+  --color-input: color-mix(in oklab, var(--tg-theme-hint-color, oklch(0.65 0.02 250)) 16%, transparent);
+  --color-ring: var(--tg-theme-link-color, oklch(0.72 0.11 240));
+
+  --radius-lg: 0.875rem;
+  --radius-md: 0.625rem;
+  --radius-sm: 0.4rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    /* Telegram's own scroll handles overscroll; a bouncing page under the
+       header looks broken inside the client. */
+    overscroll-behavior-y: none;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Telegram renders the app inside a sheet the user can drag down. Without
+     this, dragging inside a scrollable list closes the app instead. */
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}
+
+@utility animate-in-up {
+  animation: in-up 0.18s ease-out both;
+}
+
+@keyframes in-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}

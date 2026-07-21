@@ -53,10 +53,14 @@ export interface MiniAppServerOptions {
  * the Mini App runs in a native webview, but Telegram Web loads it in an
  * iframe, and a blanket `DENY` shows an empty box there with no error.
  * `script-src` allows telegram.org because the Mini App SDK is served from it.
+ *
+ * Scripts are bundled files served from this origin, so no inline script is
+ * permitted. Styles still need `unsafe-inline`: React and Radix set element
+ * styles directly for measured layout and transitions.
  */
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://telegram.org",
+  "script-src 'self' https://telegram.org",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "connect-src 'self'",
@@ -99,10 +103,58 @@ function asFilter(raw: string | null): 'unread' | 'read' | 'all' | undefined {
   return raw === 'read' || raw === 'all' || raw === 'unread' ? raw : undefined;
 }
 
+/** Resolved from this module so it works the same in dist/ and under vitest. */
+function publicDir(): string {
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
+}
+
 function appShellPath(): string {
-  // Resolved from this module so it works the same in dist/ and under vitest.
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.join(here, 'public', 'index.html');
+  return path.join(publicDir(), 'index.html');
+}
+
+const ASSET_TYPES: Record<string, string> = {
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
+  '.png': 'image/png',
+};
+
+/**
+ * Serve one of the bundler's output files.
+ *
+ * Two independent guards, because this is the only route that turns part of a
+ * URL into a filesystem path: the resolved path must stay inside the assets
+ * directory, and the extension must be one the bundle actually emits. Either
+ * alone would do; together a mistake in one is not a traversal.
+ *
+ * Names are content-hashed, so a hit can be cached forever — the file at a
+ * given name never changes, and a new build produces a new name.
+ */
+function serveAsset(res: http.ServerResponse, name: string): void {
+  const dir = path.join(publicDir(), 'assets');
+  const file = path.resolve(dir, name);
+  const type = ASSET_TYPES[path.extname(file)];
+
+  if (!file.startsWith(dir + path.sep) || !type) {
+    send(res, 404, { error: 'not found' });
+    return;
+  }
+
+  let body: Buffer;
+  try {
+    body = fs.readFileSync(file);
+  } catch {
+    send(res, 404, { error: 'not found' });
+    return;
+  }
+
+  res.writeHead(200, {
+    'content-type': type,
+    'cache-control': 'public, max-age=31536000, immutable',
+    'x-content-type-options': 'nosniff',
+  });
+  res.end(body);
 }
 
 /**
@@ -158,6 +210,15 @@ async function handle(
       'referrer-policy': 'no-referrer',
     });
     res.end(html);
+    return;
+  }
+
+  if (route.startsWith('/assets/')) {
+    if (req.method !== 'GET') {
+      send(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    serveAsset(res, route.slice('/assets/'.length));
     return;
   }
 

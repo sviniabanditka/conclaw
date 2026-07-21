@@ -77,9 +77,16 @@ Run commands directly — don't tell the user to run them.
 
 ```bash
 npm run dev          # Run with hot reload
-npm run build        # Compile TypeScript
+npm run build        # Build the Mini App front end, then compile TypeScript
+npm run dev:ui       # Vite dev server for the Mini App front end alone
 ./container/build.sh # Rebuild agent container
 ```
+
+The Mini App front end lives in `miniapp-ui/` (React + Tailwind + shadcn-style
+components) and builds into `src/miniapp/public/`, which is **generated and
+gitignored**. `build`, `dev` and `test` each run the UI build first, so a clean
+clone works — but `npx vitest run` skips npm's pre-hooks, so run `npm test` (or
+`npm run build:ui` once) or the asset tests will fail on a fresh checkout.
 
 Service management:
 ```bash

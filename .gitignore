@@ -3,6 +3,9 @@ node_modules/
 .npm-cache/
 # Build output
 dist/
+# Built by `vite build` (npm run build:ui), which `build`, `dev` and `test` all
+# run first. Generated, content-hashed, and would churn on every UI change.
+src/miniapp/public/
 
 # Local data & auth
 store/
