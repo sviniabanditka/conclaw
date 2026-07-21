@@ -247,6 +247,15 @@ export function syncCalendarEvents(
   return plan;
 }
 
+/**
+ * Where the cached events live.
+ *
+ * The cache used to hold only today, under the old name. Prefer the wider
+ * window when present and fall back, so an install whose refresh task has not
+ * been updated yet keeps working.
+ */
 export function eventsFilePath(groupDir: string): string {
+  const current = path.join(groupDir, 'calendar_events.json');
+  if (fs.existsSync(current)) return current;
   return path.join(groupDir, 'today_events.json');
 }

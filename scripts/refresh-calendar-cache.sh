@@ -1,5 +1,5 @@
 #!/bin/bash
-# Refresh today's Google Calendar cache from inside an agent container.
+# Refresh the Google Calendar cache from inside an agent container.
 #
 # Runs as a scheduled task's `script`, and deliberately never wakes the agent:
 # fetching a list of events needs no reasoning. The OneCLI gateway injects the
@@ -12,20 +12,24 @@
 # noticed as fast as this runs.
 set -uo pipefail
 
-OUT=/workspace/group/today_events.json
+OUT=/workspace/group/calendar_events.json
 TMP=$(mktemp)
 RAW=$(mktemp)
 trap 'rm -f "$TMP" "$RAW"' EXIT
 
-FROM=$(date -Iseconds -d 'today 00:00:00')
-TO=$(date -Iseconds -d 'today 23:59:59')
+# A window, not just today: the evening rundown needs tomorrow, the Friday
+# summary needs the week behind and the week ahead, and one request covers all
+# three. Reminders ignore anything already past, so the extra range is free.
+FROM=$(date -Iseconds -d '7 days ago 00:00:00')
+TO=$(date -Iseconds -d '8 days 23:59:59')
 
 HTTP=$(curl -sS -o "$RAW" -w '%{http_code}' -G --max-time 30 \
   "https://www.googleapis.com/calendar/v3/calendars/primary/events" \
   --data-urlencode "timeMin=$FROM" \
   --data-urlencode "timeMax=$TO" \
   --data-urlencode "singleEvents=true" \
-  --data-urlencode "orderBy=startTime" 2>/dev/null) || HTTP=000
+  --data-urlencode "orderBy=startTime" \
+  --data-urlencode "maxResults=250" 2>/dev/null) || HTTP=000
 
 if [ "$HTTP" != "200" ]; then
   # Leave the existing cache alone. A stale cache still produces correct

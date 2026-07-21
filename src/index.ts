@@ -64,8 +64,10 @@ import {
 } from './db.js';
 import {
   eventsFilePath,
+  parseEvents,
   syncCalendarEvents,
 } from './calendar-sync.js';
+import { planSummaries } from './summaries.js';
 import {
   scheduleFilePath,
   syncScheduleFile,
@@ -980,6 +982,57 @@ async function main(): Promise<void> {
         });
       } catch (err) {
         logger.error({ group: group.folder, err }, 'Calendar sync failed');
+      }
+
+      // Summaries are re-rendered on every pass so the text that eventually
+      // goes out was composed a minute earlier, not whenever the task was made.
+      try {
+        const eventsFile = eventsFilePath(groupDir);
+        if (fs.existsSync(eventsFile)) {
+          const events = parseEvents(fs.readFileSync(eventsFile, 'utf-8'));
+          const plan = planSummaries(
+            group.folder,
+            events,
+            getTasksForGroup(group.folder),
+            { now: Date.now(), timeZone: TIMEZONE },
+          );
+          for (const item of plan.upsert) {
+            const nextRun = (() => {
+              try {
+                return CronExpressionParser.parse(item.cron, { tz: TIMEZONE })
+                  .next()
+                  .toISOString();
+              } catch {
+                return null;
+              }
+            })();
+            if (getTaskById(item.id)) {
+              updateTask(item.id, {
+                prompt: item.prompt,
+                schedule_value: item.cron,
+                next_run: nextRun,
+              });
+            } else {
+              createTask({
+                id: item.id,
+                group_folder: group.folder,
+                chat_jid: jid,
+                prompt: item.prompt,
+                script: null,
+                schedule_type: 'cron',
+                schedule_value: item.cron,
+                context_mode: 'isolated',
+                kind: 'notify',
+                next_run: nextRun,
+                status: 'active',
+                created_at: new Date().toISOString(),
+              });
+            }
+          }
+          for (const id of plan.remove) deleteTask(id);
+        }
+      } catch (err) {
+        logger.error({ group: group.folder, err }, 'Summary sync failed');
       }
     }
   };
