@@ -1,4 +1,5 @@
 import {
+  OnCallbackAction,
   Channel,
   OnInboundMessage,
   OnChatMetadata,
@@ -9,6 +10,8 @@ export interface ChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
+  /** Optional: a button on a sent message was tapped. */
+  onCallbackAction?: OnCallbackAction;
 }
 
 export type ChannelFactory = (opts: ChannelOpts) => Channel | null;

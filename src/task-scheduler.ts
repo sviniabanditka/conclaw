@@ -73,6 +73,15 @@ export interface SchedulerDependencies {
     groupFolder: string,
   ) => void;
   sendMessage: (jid: string, text: string) => Promise<void>;
+  /**
+   * Deliver a notify task with its action buttons. Falls back to sendMessage
+   * on channels that cannot render them.
+   */
+  sendReminder?: (
+    jid: string,
+    text: string,
+    taskId: string,
+  ) => Promise<void>;
 }
 
 /**
@@ -85,13 +94,17 @@ export interface SchedulerDependencies {
  */
 export async function runNotifyTask(
   task: ScheduledTask,
-  deps: Pick<SchedulerDependencies, 'sendMessage'>,
+  deps: Pick<SchedulerDependencies, 'sendMessage' | 'sendReminder'>,
 ): Promise<void> {
   const startTime = Date.now();
   let error: string | null = null;
 
   try {
-    await deps.sendMessage(task.chat_jid, task.prompt);
+    if (deps.sendReminder) {
+      await deps.sendReminder(task.chat_jid, task.prompt, task.id);
+    } else {
+      await deps.sendMessage(task.chat_jid, task.prompt);
+    }
     logger.info({ taskId: task.id }, 'Notify task sent');
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);

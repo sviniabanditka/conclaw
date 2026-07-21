@@ -23,6 +23,7 @@ import {
 } from './config.js';
 import './channels/index.js';
 import {
+  ChannelOpts,
   getChannelFactory,
   getRegisteredChannelNames,
 } from './channels/registry.js';
@@ -45,6 +46,7 @@ import {
   getAllTasks,
   getLastBotMessageTimestamp,
   getTasksForGroup,
+  getTaskById,
   getMessagesSince,
   getNewMessages,
   getRouterState,
@@ -80,6 +82,7 @@ import {
 } from './sender-allowlist.js';
 import { extractSessionCommand, handleSessionCommand, isSessionCommandAllowed } from './session-commands.js';
 import { startSchedulerLoop } from './task-scheduler.js';
+import { applyReminderAction, reminderButtons } from './reminder-actions.js';
 import { TokenWatchdog } from './token-watchdog.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
@@ -821,7 +824,7 @@ async function main(): Promise<void> {
   }
 
   // Channel callbacks (shared by all channels)
-  const channelOpts = {
+  const channelOpts: ChannelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
       // Remote control commands — intercept before storage
       const trimmed = msg.content.trim();
@@ -858,6 +861,20 @@ async function main(): Promise<void> {
       isGroup?: boolean,
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
+    onCallbackAction: async (chatJid, messageId, action) => {
+      const result = await applyReminderAction(chatJid, messageId, action, {
+        getTask: getTaskById,
+        createTask,
+        deleteTask,
+        editMessage: async (jid, id, text) => {
+          const channel = findChannel(channels, jid);
+          // Editing also drops the inline keyboard, so a handled reminder
+          // cannot be actioned twice.
+          await channel?.editMessage?.(jid, id, text, { markdown: true });
+        },
+      });
+      return result ?? undefined;
+    },
   };
 
   // Create and connect all registered channels.
@@ -950,6 +967,20 @@ async function main(): Promise<void> {
       }
       const text = formatOutbound(rawText, channel.name as ChannelType);
       if (text) await channel.sendMessage(jid, text);
+    },
+    sendReminder: async (jid, text, taskId) => {
+      const channel = findChannel(channels, jid);
+      if (!channel) return;
+      // Buttons are best-effort: a channel without them still gets the reminder.
+      if (channel.sendMessageWithButtons) {
+        const id = await channel.sendMessageWithButtons(
+          jid,
+          text,
+          reminderButtons(taskId),
+        );
+        if (id) return;
+      }
+      await channel.sendMessage(jid, text);
     },
   });
   startIpcWatcher({

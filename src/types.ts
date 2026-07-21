@@ -118,7 +118,39 @@ export interface Channel {
     opts?: { markdown?: boolean },
   ): Promise<void>;
   deleteMessage?(jid: string, messageId: string): Promise<void>;
+  /**
+   * Send a message with tappable action buttons.
+   *
+   * Each button carries an opaque `action` string that comes back through
+   * OnCallbackAction when tapped. Channels without buttons omit this and
+   * callers fall back to sendMessage.
+   */
+  sendMessageWithButtons?(
+    jid: string,
+    text: string,
+    buttons: MessageButton[],
+  ): Promise<string | null>;
 }
+
+export interface MessageButton {
+  /** Shown on the button. */
+  label: string;
+  /**
+   * Opaque token echoed back when tapped. Telegram caps callback payloads at
+   * 64 bytes, so keep these short.
+   */
+  action: string;
+}
+
+/**
+ * A button tap. `messageId` is the message the buttons were attached to, so the
+ * handler can edit it to reflect what happened.
+ */
+export type OnCallbackAction = (
+  chatJid: string,
+  messageId: string,
+  action: string,
+) => Promise<string | void>;
 
 // Callback type that channels use to deliver inbound messages
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;

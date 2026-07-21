@@ -12,6 +12,7 @@ import { transcribeAudio } from '../transcription.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
+  MessageButton,
   OnChatMetadata,
   OnInboundMessage,
   RegisteredGroup,
@@ -21,6 +22,11 @@ export interface TelegramChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
+  onCallbackAction?: (
+    chatJid: string,
+    messageId: string,
+    action: string,
+  ) => Promise<string | void>;
 }
 
 /**
@@ -407,6 +413,31 @@ export class TelegramChannel implements Channel {
     this.bot.on('message:location', (ctx) => storeMedia(ctx, '[Location]'));
     this.bot.on('message:contact', (ctx) => storeMedia(ctx, '[Contact]'));
 
+    this.bot.on('callback_query:data', async (ctx) => {
+      const chatId = ctx.callbackQuery.message?.chat.id;
+      const messageId = ctx.callbackQuery.message?.message_id;
+      const action = ctx.callbackQuery.data;
+
+      // Telegram spins the button until answerCallbackQuery lands, so the
+      // handler must stay fast — it is a local DB write plus one edit. Answering
+      // after it, rather than before, is what lets the toast report the outcome.
+      let toast: string | void = undefined;
+      try {
+        if (chatId != null && messageId != null && this.opts.onCallbackAction) {
+          toast = await this.opts.onCallbackAction(
+            `tg:${chatId}`,
+            String(messageId),
+            action,
+          );
+        }
+      } catch (err) {
+        logger.error({ action, err }, 'Callback action handler failed');
+      }
+      await ctx
+        .answerCallbackQuery(toast ? { text: toast } : undefined)
+        .catch(() => {});
+    });
+
     // Handle errors gracefully
     this.bot.catch((err) => {
       logger.error({ err: err.message }, 'Telegram bot error');
@@ -568,6 +599,29 @@ export class TelegramChannel implements Channel {
       // the live-message throttle can tell those cases apart.
       logger.debug({ jid, messageId, err }, 'Failed to edit Telegram message');
       throw err;
+    }
+  }
+
+  async sendMessageWithButtons(
+    jid: string,
+    text: string,
+    buttons: MessageButton[],
+  ): Promise<string | null> {
+    if (!this.bot) return null;
+    try {
+      const numericId = jid.replace(/^tg:/, '');
+      const sent = await this.bot.api.sendMessage(numericId, text, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            buttons.map((b) => ({ text: b.label, callback_data: b.action })),
+          ],
+        },
+      });
+      return String(sent.message_id);
+    } catch (err) {
+      logger.debug({ jid, err }, 'Failed to send Telegram message with buttons');
+      return null;
     }
   }
 
