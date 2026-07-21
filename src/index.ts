@@ -11,6 +11,8 @@ import {
   GROUPS_DIR,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_URL,
+  MINIAPP_PORT,
+  MINIAPP_ALLOWED_USER_IDS,
   IDLE_TIMEOUT,
   LIVE_MESSAGE_BACKOFF_MS,
   LIVE_MESSAGE_INTERVAL_MS,
@@ -25,6 +27,7 @@ import {
   TELEGRAM_MAX_LENGTH,
   TIMEZONE,
 } from './config.js';
+import { readEnvFile } from './env.js';
 import './channels/index.js';
 import {
   ChannelOpts,
@@ -102,6 +105,8 @@ import { Heartbeat } from './heartbeat.js';
 import { applyReminderAction, reminderButtons } from './reminder-actions.js';
 import { ReplyIndex, applyReplyAction, replyButtons } from './reply-actions.js';
 import { TokenWatchdog } from './token-watchdog.js';
+import { startMiniAppServer } from './miniapp/server.js';
+import { parseAllowedUserIds } from './miniapp/auth.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
@@ -1183,6 +1188,34 @@ async function main(): Promise<void> {
       await channel?.sendMessage(mainJid, message);
     },
   }).start();
+
+  // Telegram Mini App. The only listening socket in the process, so it stays
+  // off unless both a port and an allowlist are configured — see startMiniAppServer.
+  const mainGroupFolder = Object.values(registeredGroups).find((g) => g.isMain)
+    ?.folder;
+  if (MINIAPP_PORT && mainGroupFolder) {
+    const refreshLog = path.join(LOGS_DIR, 'refresh-token.log');
+    startMiniAppServer({
+      port: MINIAPP_PORT,
+      botToken: readEnvFile(['TELEGRAM_BOT_TOKEN']).TELEGRAM_BOT_TOKEN || '',
+      allowedUserIds: parseAllowedUserIds(MINIAPP_ALLOWED_USER_IDS),
+      api: {
+        groupFolder: mainGroupFolder,
+        groupsDir: GROUPS_DIR,
+        getTasks: getTasksForGroup,
+        deleteTask,
+        lastRefreshAgeMs: () => {
+          try {
+            return Date.now() - fs.statSync(refreshLog).mtimeMs;
+          } catch {
+            return null;
+          }
+        },
+      },
+    });
+  } else if (MINIAPP_PORT) {
+    logger.warn('Mini App not started: no main group registered yet');
+  }
 
   // Start subsystems (independently of connection handler)
   startSchedulerLoop({

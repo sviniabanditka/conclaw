@@ -14,6 +14,8 @@ const envConfig = readEnvFile([
   'HEARTBEAT_INTERVAL_MS',
   'WEATHER_LATITUDE',
   'WEATHER_LONGITUDE',
+  'MINIAPP_PORT',
+  'MINIAPP_ALLOWED_USER_IDS',
 ]);
 
 export const ASSISTANT_NAME =
@@ -55,6 +57,23 @@ export const WEATHER_LATITUDE =
   process.env.WEATHER_LATITUDE || envConfig.WEATHER_LATITUDE || '';
 export const WEATHER_LONGITUDE =
   process.env.WEATHER_LONGITUDE || envConfig.WEATHER_LONGITUDE || '';
+
+/**
+ * Telegram Mini App.
+ *
+ * Both must be set for the app to start. The port is opt-in because this is
+ * the only listening socket ConClaw has, and the allowlist is opt-in because
+ * an unset one would mean "any Telegram user who finds the URL" — so an
+ * install that configures neither exposes nothing at all.
+ */
+export const MINIAPP_PORT = parseInt(
+  process.env.MINIAPP_PORT || envConfig.MINIAPP_PORT || '0',
+  10,
+);
+export const MINIAPP_ALLOWED_USER_IDS =
+  process.env.MINIAPP_ALLOWED_USER_IDS ||
+  envConfig.MINIAPP_ALLOWED_USER_IDS ||
+  '';
 
 /**
  * Dead-man's switch to an external monitor. Unset disables it — the feature

@@ -56,6 +56,22 @@ export function appendLinks(file: string, urls: string[], now: number): void {
   fs.appendFileSync(file, lines + '\n');
 }
 
+/**
+ * Drop a link from the collection, returning how many entries went.
+ *
+ * Rewrites the file from the parsed entries, so corrupt lines are dropped as a
+ * side effect — acceptable here because the caller asked to modify the file
+ * anyway, unlike {@link readLinks} which must not lose anything it cannot parse.
+ */
+export function removeLink(file: string, url: string): number {
+  const kept = readLinks(file).filter((l) => l.url !== url);
+  const before = readLinks(file).length;
+  if (kept.length === before) return 0;
+  const body = kept.map((l) => JSON.stringify(l)).join('\n');
+  fs.writeFileSync(file, body ? body + '\n' : '');
+  return before - kept.length;
+}
+
 export function readLinks(file: string): CapturedLink[] {
   let raw: string;
   try {

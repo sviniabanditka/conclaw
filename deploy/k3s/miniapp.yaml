@@ -1,0 +1,61 @@
+# Telegram Mini App — Service + Ingress.
+#
+# Optional and applied separately from workspace.yaml: until you apply this,
+# ConClaw listens only inside the pod and nothing is reachable from outside.
+#
+# Before applying, set:
+#   1. `host:` in both places below — the domain that points at your cluster.
+#   2. The TLS issuer annotation, if you use cert-manager. Telegram requires
+#      HTTPS with a certificate it trusts; a self-signed one shows a blank
+#      screen in the client with no error.
+#
+# Then, in ConClaw's .env:
+#   MINIAPP_PORT=10256
+#   MINIAPP_ALLOWED_USER_IDS=<your numeric Telegram id>
+#
+# The allowlist is what keeps the app yours. Everything served here is reachable
+# by anyone who learns the URL, and every Telegram user gets a validly signed
+# initData for their own account — the signature proves the request came from
+# Telegram, not that it came from you. Leave the list empty and ConClaw refuses
+# to open the port at all.
+#
+# Finally register the app with @BotFather: /newapp, or Bot Settings → Menu
+# Button → set the URL to https://<host>/.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: conclaw-miniapp
+  namespace: conclaw
+spec:
+  selector: { app: conclaw-workspace }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 10256
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: conclaw-miniapp
+  namespace: conclaw
+  annotations:
+    # cert-manager, if that is how the cluster issues certificates. Delete this
+    # line if you terminate TLS some other way.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - conclaw.example.com # <-- your domain
+      secretName: conclaw-miniapp-tls
+  rules:
+    - host: conclaw.example.com # <-- your domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: conclaw-miniapp
+                port:
+                  name: http

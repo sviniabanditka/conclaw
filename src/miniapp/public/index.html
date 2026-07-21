@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ConClaw</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  /* Colours come from Telegram's theme so the app matches the client the user
+     already chose, light or dark, without a toggle of its own. The fallbacks
+     are only reached when the page is opened outside Telegram. */
+  :root {
+    --bg: var(--tg-theme-bg-color, #17212b);
+    --card: var(--tg-theme-secondary-bg-color, #232e3c);
+    --text: var(--tg-theme-text-color, #f5f5f5);
+    --muted: var(--tg-theme-hint-color, #7d8b99);
+    --accent: var(--tg-theme-link-color, #6ab3f3);
+    --danger: #e5534b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+  }
+  header { padding: 16px 0 12px; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  nav { display: flex; gap: 6px; margin-bottom: 14px; }
+  nav button {
+    flex: 1; padding: 9px 0; border: 0; border-radius: 9px;
+    background: var(--card); color: var(--muted);
+    font: inherit; font-size: 14px; cursor: pointer;
+  }
+  nav button[aria-selected="true"] { color: var(--text); font-weight: 600; }
+
+  .card {
+    background: var(--card); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 8px;
+  }
+  .row { display: flex; align-items: flex-start; gap: 10px; }
+  .row > .grow { flex: 1; min-width: 0; }
+  .title { font-weight: 500; word-break: break-word; }
+  .meta { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  a { color: var(--accent); text-decoration: none; word-break: break-all; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .stat { background: var(--card); border-radius: 12px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 24px; font-weight: 600; }
+  .stat span { color: var(--muted); font-size: 12.5px; }
+
+  .act {
+    border: 0; background: transparent; color: var(--muted);
+    font-size: 17px; cursor: pointer; padding: 2px 4px; line-height: 1;
+  }
+  .act:disabled { opacity: .35; cursor: default; }
+
+  .empty, .error { color: var(--muted); text-align: center; padding: 32px 8px; }
+  .error { color: var(--danger); }
+  .stale { color: var(--danger); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ConClaw</h1>
+  <div class="sub" id="sub">загрузка…</div>
+</header>
+
+<nav>
+  <button data-tab="overview" aria-selected="true">Обзор</button>
+  <button data-tab="links" aria-selected="false">Ссылки</button>
+  <button data-tab="tasks" aria-selected="false">Задачи</button>
+</nav>
+
+<main id="view"><div class="empty">загрузка…</div></main>
+
+<script>
+(function () {
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+
+  var view = document.getElementById('view');
+  var sub = document.getElementById('sub');
+  var tab = 'overview';
+
+  function api(path, method, body) {
+    return fetch('/api/' + path, {
+      method: method || 'GET',
+      headers: {
+        'X-Telegram-Init-Data': (tg && tg.initData) || '',
+        'Content-Type': 'application/json'
+      },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      if (r.status === 401) throw new Error('Нет доступа');
+      if (!r.ok) throw new Error('Ошибка ' + r.status);
+      return r.json();
+    });
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // Times arrive as UTC ISO strings; the user thinks in local time.
+  function when(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (isNaN(d)) return '—';
+    var today = new Date();
+    var sameDay = d.toDateString() === today.toDateString();
+    var t = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return sameDay ? 'сегодня ' + t : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) + ' ' + t;
+  }
+
+  function ago(ms) {
+    if (ms == null) return 'нет данных';
+    var m = Math.round(ms / 60000);
+    if (m < 60) return m + ' мин назад';
+    return Math.round(m / 60) + ' ч назад';
+  }
+
+  function haptic(kind) {
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(kind);
+  }
+
+  function render(html) { view.innerHTML = html; }
+  function fail(err) {
+    render('<div class="error">' + esc(err.message) + '</div>');
+    sub.textContent = '';
+  }
+
+  var views = {
+    overview: function () {
+      return api('overview').then(function (d) {
+        sub.textContent = 'обновлено ' + when(d.generatedAt);
+        var stale = d.lastRefreshAgeMs != null && d.lastRefreshAgeMs > 90 * 60000;
+        var html =
+          '<div class="stats">' +
+            '<div class="stat"><b>' + d.linkCount + '</b><span>ссылок в копилке</span></div>' +
+            '<div class="stat"><b>' + d.taskCount + '</b><span>задач в расписании</span></div>' +
+          '</div>' +
+          '<div class="card"><div class="title">Токен</div><div class="meta' +
+            (stale ? ' stale' : '') + '">обновлён ' + esc(ago(d.lastRefreshAgeMs)) + '</div></div>';
+        if (d.upcoming.length) {
+          html += d.upcoming.map(function (t) {
+            return '<div class="card"><div class="title">' + esc(t.title) + '</div>' +
+                   '<div class="meta">' + esc(when(t.nextRun)) + '</div></div>';
+          }).join('');
+        }
+        render(html);
+      });
+    },
+
+    links: function () {
+      return api('links').then(function (d) {
+        sub.textContent = d.links.length + ' сохранено';
+        if (!d.links.length) { render('<div class="empty">Пусто. Кинь ссылку в чат — она попадёт сюда.</div>'); return; }
+        render(d.links.map(function (l) {
+          return '<div class="card" data-url="' + esc(l.url) + '"><div class="row">' +
+            '<div class="grow"><a href="' + esc(l.url) + '" target="_blank" rel="noopener">' + esc(l.url) + '</a>' +
+            '<div class="meta">' + esc(when(l.at)) + '</div></div>' +
+            '<button class="act" data-archive="' + esc(l.url) + '" title="Убрать">✅</button>' +
+          '</div></div>';
+        }).join(''));
+      });
+    },
+
+    tasks: function () {
+      return api('tasks').then(function (d) {
+        sub.textContent = d.tasks.length + ' задач';
+        if (!d.tasks.length) { render('<div class="empty">Задач нет.</div>'); return; }
+        render(d.tasks.map(function (t) {
+          // Derived tasks are regenerated from schedule.md within the minute,
+          // so the button is shown disabled rather than hidden — otherwise the
+          // row looks arbitrarily different with no explanation.
+          return '<div class="card"><div class="row">' +
+            '<div class="grow"><div class="title">' + esc(t.title) + '</div>' +
+            '<div class="meta">' + esc(when(t.nextRun)) +
+              (t.status !== 'active' ? ' · ' + esc(t.status) : '') +
+              (t.derived ? ' · из schedule.md' : '') + '</div></div>' +
+            '<button class="act" data-delete="' + esc(t.id) + '"' +
+              (t.derived ? ' disabled title="Правится в schedule.md"' : ' title="Удалить"') +
+            '>🗑</button>' +
+          '</div></div>';
+        }).join(''));
+      });
+    }
+  };
+
+  function load() {
+    render('<div class="empty">загрузка…</div>');
+    views[tab]().catch(fail);
+  }
+
+  document.querySelector('nav').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-tab]');
+    if (!btn) return;
+    tab = btn.dataset.tab;
+    Array.prototype.forEach.call(this.children, function (b) {
+      b.setAttribute('aria-selected', String(b === btn));
+    });
+    load();
+  });
+
+  view.addEventListener('click', function (e) {
+    var archive = e.target.closest('[data-archive]');
+    var del = e.target.closest('[data-delete]');
+    var btn = archive || del;
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    var req = archive
+      ? api('links/archive', 'POST', { url: archive.dataset.archive })
+      : api('tasks/delete', 'POST', { id: del.dataset.delete });
+    req.then(function (r) {
+      if (r.removed === 0 || r.deleted === false) {
+        btn.disabled = false;
+        haptic('error');
+        if (r.reason) sub.textContent = r.reason;
+        return;
+      }
+      haptic('success');
+      // Reload rather than removing the node: the counts in the header and the
+      // overview tab are derived from the same data and would drift.
+      load();
+    }).catch(function (err) { btn.disabled = false; fail(err); });
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

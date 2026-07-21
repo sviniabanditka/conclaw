@@ -76,6 +76,9 @@ spec:
             - { name: LANG, value: C.UTF-8 }
             - { name: LC_ALL, value: C.UTF-8 }
           workingDir: /workspace
+          # Only reachable in-pod until deploy/k3s/miniapp.yaml is applied.
+          ports:
+            - { name: miniapp, containerPort: 10256 }
           volumeMounts:
             - { name: workspace, mountPath: /workspace }
           resources:
