@@ -115,7 +115,7 @@ export interface Channel {
     jid: string,
     messageId: string,
     text: string,
-    opts?: { markdown?: boolean },
+    opts?: { markdown?: boolean; buttons?: MessageButton[] },
   ): Promise<void>;
   deleteMessage?(jid: string, messageId: string): Promise<void>;
   /**

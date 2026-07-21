@@ -573,17 +573,32 @@ export class TelegramChannel implements Channel {
     jid: string,
     messageId: string,
     text: string,
-    opts: { markdown?: boolean } = {},
+    opts: { markdown?: boolean; buttons?: MessageButton[] } = {},
   ): Promise<void> {
     if (!this.bot) return;
     const msgId = parseInt(messageId, 10);
     if (isNaN(msgId)) return;
     const numericId = jid.replace(/^tg:/, '');
+    // Omitting reply_markup on an edit clears the keyboard, which is what an
+    // actioned message wants; passing it keeps the buttons live.
+    const markup = opts.buttons
+      ? {
+          reply_markup: {
+            inline_keyboard: [
+              opts.buttons.map((b) => ({
+                text: b.label,
+                callback_data: b.action,
+              })),
+            ],
+          },
+        }
+      : {};
 
     if (opts.markdown) {
       try {
         await this.bot.api.editMessageText(numericId, msgId, text, {
           parse_mode: 'Markdown',
+          ...markup,
         });
         return;
       } catch (err) {
@@ -592,7 +607,7 @@ export class TelegramChannel implements Channel {
     }
 
     try {
-      await this.bot.api.editMessageText(numericId, msgId, text);
+      await this.bot.api.editMessageText(numericId, msgId, text, markup);
     } catch (err) {
       // "message is not modified" is expected whenever content did not change
       // between ticks, and a 429 is handled by the caller's backoff. Rethrow so

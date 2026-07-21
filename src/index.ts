@@ -90,6 +90,7 @@ import { extractSessionCommand, handleSessionCommand, isSessionCommandAllowed } 
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Heartbeat } from './heartbeat.js';
 import { applyReminderAction, reminderButtons } from './reminder-actions.js';
+import { ReplyIndex, applyReplyAction, replyButtons } from './reply-actions.js';
 import { TokenWatchdog } from './token-watchdog.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
@@ -105,6 +106,12 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+
+/**
+ * Recent replies, so a "remind me later" button can recover the text it was
+ * attached to — a 64-byte callback payload cannot carry it.
+ */
+const replyIndex = new ReplyIndex();
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
@@ -417,9 +424,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       return;
     }
     try {
-      await channel.editMessage(chatJid, id, text.slice(0, TELEGRAM_MAX_LENGTH), {
+      const shown = text.slice(0, TELEGRAM_MAX_LENGTH);
+      await channel.editMessage(chatJid, id, shown, {
         markdown: true,
+        buttons: replyButtons(),
       });
+      replyIndex.remember(chatJid, id, shown);
       if (text.length > TELEGRAM_MAX_LENGTH) {
         await channel.sendMessage(chatJid, text.slice(TELEGRAM_MAX_LENGTH));
       }
@@ -869,6 +879,24 @@ async function main(): Promise<void> {
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
     onCallbackAction: async (chatJid, messageId, action) => {
+      const editText = async (jid: string, id: string, text: string) => {
+        const channel = findChannel(channels, jid);
+        // Editing also drops the inline keyboard, so a handled message cannot
+        // be actioned twice.
+        await channel?.editMessage?.(jid, id, text, { markdown: true });
+      };
+
+      const group = registeredGroups[chatJid];
+      if (group) {
+        const replyResult = await applyReplyAction(chatJid, messageId, action, {
+          groupFolder: group.folder,
+          getText: (jid, id) => replyIndex.get(jid, id),
+          createTask,
+          editMessage: editText,
+        });
+        if (replyResult !== null) return replyResult;
+      }
+
       const result = await applyReminderAction(chatJid, messageId, action, {
         getTask: getTaskById,
         createTask,
