@@ -40,6 +40,11 @@ import {
 } from './container-runner.js';
 import { LiveMessage } from './live-message.js';
 import {
+  appendLinks,
+  extractBareLinks,
+  linksFilePath,
+} from './link-capture.js';
+import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
 } from './container-runtime.js';
@@ -387,7 +392,43 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
+  // Messages that are only links are collected rather than answered. Replying
+  // to each interrupts, costs a container, and is read even less than the link
+  // would have been; the evening digest reports them once. A link sent *with* a
+  // question stays a question and falls through to the agent.
+  const captured: string[] = [];
+  const forAgent = missedMessages.filter((m) => {
+    const links = extractBareLinks(m.content);
+    if (!links) return true;
+    captured.push(...links);
+    channel.setReaction?.(chatJid, m.id, '🔖')?.catch(() => {});
+    return false;
+  });
+
+  if (captured.length > 0) {
+    try {
+      appendLinks(
+        linksFilePath(resolveGroupFolderPath(group.folder)),
+        captured,
+        Date.now(),
+      );
+      logger.info({ group: group.name, count: captured.length }, 'Links captured');
+    } catch (err) {
+      logger.error({ group: group.name, err }, 'Failed to capture links');
+    }
+  }
+
+  if (forAgent.length === 0) {
+    // Nothing but links. The cursor is advanced here rather than below, because
+    // the normal path has not run yet — without this the same links are
+    // re-fetched on the next poll and captured again, forever.
+    lastAgentTimestamp[chatJid] =
+      missedMessages[missedMessages.length - 1].timestamp;
+    saveState();
+    return true;
+  }
+
+  const prompt = formatMessages(forAgent, TIMEZONE);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -416,7 +457,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
 
   // React to the last user message to signal processing status
-  const lastMsg = missedMessages[missedMessages.length - 1];
+  // The last message the agent is actually answering — not a link captured
+  // after it, which already carries its own 🔖.
+  const lastMsg = forAgent[forAgent.length - 1];
   markProcessing(channel, chatJid, lastMsg.id);
 
   await channel.setTyping?.(chatJid, true);
