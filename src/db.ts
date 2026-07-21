@@ -82,6 +82,28 @@ function createSchema(database: Database.Database): void {
       container_config TEXT,
       requires_trigger INTEGER DEFAULT 1
     );
+
+    -- Links thrown into the chat to read later. Started life as a JSONL append
+    -- log holding only the URL and a timestamp, which meant the archive could
+    -- be listed but never searched, filtered or described.
+    CREATE TABLE IF NOT EXISTS links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_folder TEXT NOT NULL,
+      url TEXT NOT NULL,
+      title TEXT,
+      description TEXT,
+      domain TEXT,
+      tags TEXT,
+      note TEXT,
+      read INTEGER NOT NULL DEFAULT 0,
+      added_at TEXT NOT NULL,
+      read_at TEXT
+    );
+    -- One row per link per group: re-sending a link should not duplicate it.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_links_group_url
+      ON links(group_folder, url);
+    CREATE INDEX IF NOT EXISTS idx_links_unread
+      ON links(group_folder, read, added_at);
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -761,4 +783,221 @@ function migrateJsonState(): void {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Links
+//
+// Every query is scoped by group_folder. The Mini App speaks for exactly one
+// group and has no way to name another, and that guarantee should not depend
+// on the caller remembering to filter.
+// ---------------------------------------------------------------------------
+
+export interface LinkRow {
+  id: number;
+  group_folder: string;
+  url: string;
+  title: string | null;
+  description: string | null;
+  domain: string | null;
+  tags: string | null;
+  note: string | null;
+  read: number;
+  added_at: string;
+  read_at: string | null;
+}
+
+export function linkDomain(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record a link, or resurface one already saved.
+ *
+ * Sending a link a second time is a deliberate act, so a link that had been
+ * marked read comes back unread rather than being silently ignored. The
+ * original `added_at` is kept: it answers "when did I first save this", which
+ * a re-send does not change.
+ */
+export function addLink(
+  groupFolder: string,
+  url: string,
+  addedAt: string = new Date().toISOString(),
+): void {
+  db.prepare(
+    `INSERT INTO links (group_folder, url, domain, added_at, read)
+     VALUES (?, ?, ?, ?, 0)
+     ON CONFLICT(group_folder, url) DO UPDATE SET read = 0, read_at = NULL`,
+  ).run(groupFolder, url, linkDomain(url), addedAt);
+}
+
+export interface LinkQuery {
+  /** Undefined returns both; true only read, false only unread. */
+  read?: boolean;
+  /** Free text over url, title, description, note and tags. */
+  q?: string;
+  tag?: string;
+  limit?: number;
+}
+
+/**
+ * Links for a group, newest first.
+ *
+ * The text search runs in JavaScript rather than SQL on purpose: SQLite's
+ * built-in `LIKE` and `lower()` only fold case for ASCII, so a SQL search for
+ * "Деплой" would miss "деплой". A personal archive is small enough that
+ * filtering in memory costs nothing and behaves correctly in every language.
+ */
+export function getLinks(groupFolder: string, query: LinkQuery = {}): LinkRow[] {
+  const where = ['group_folder = ?'];
+  const params: unknown[] = [groupFolder];
+  if (query.read !== undefined) {
+    where.push('read = ?');
+    params.push(query.read ? 1 : 0);
+  }
+  let rows = db
+    .prepare(
+      `SELECT * FROM links WHERE ${where.join(' AND ')} ORDER BY added_at DESC, id DESC`,
+    )
+    .all(...params) as LinkRow[];
+
+  const needle = query.q?.trim().toLocaleLowerCase();
+  if (needle) {
+    rows = rows.filter((row) =>
+      [row.url, row.title, row.description, row.note, row.tags]
+        .filter(Boolean)
+        .some((field) => String(field).toLocaleLowerCase().includes(needle)),
+    );
+  }
+  const tag = query.tag?.trim().toLocaleLowerCase();
+  if (tag) {
+    rows = rows.filter((row) =>
+      splitTags(row.tags).some((t) => t.toLocaleLowerCase() === tag),
+    );
+  }
+  return query.limit ? rows.slice(0, query.limit) : rows;
+}
+
+export function splitTags(tags: string | null): string[] {
+  return (tags || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+export interface LinkUpdate {
+  read?: boolean;
+  title?: string;
+  description?: string;
+  tags?: string;
+  note?: string;
+}
+
+/** Update a link in place. Returns false if it is not this group's. */
+export function updateLink(
+  groupFolder: string,
+  id: number,
+  fields: LinkUpdate,
+  now: string = new Date().toISOString(),
+): boolean {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  if (fields.read !== undefined) {
+    sets.push('read = ?', 'read_at = ?');
+    params.push(fields.read ? 1 : 0, fields.read ? now : null);
+  }
+  for (const key of ['title', 'description', 'tags', 'note'] as const) {
+    if (fields[key] !== undefined) {
+      sets.push(`${key} = ?`);
+      params.push(fields[key]);
+    }
+  }
+  if (sets.length === 0) return false;
+  const res = db
+    .prepare(`UPDATE links SET ${sets.join(', ')} WHERE id = ? AND group_folder = ?`)
+    .run(...params, id, groupFolder);
+  return res.changes > 0;
+}
+
+export function deleteLink(groupFolder: string, id: number): boolean {
+  const res = db
+    .prepare('DELETE FROM links WHERE id = ? AND group_folder = ?')
+    .run(id, groupFolder);
+  return res.changes > 0;
+}
+
+export function countLinks(groupFolder: string, read?: boolean): number {
+  const row =
+    read === undefined
+      ? db
+          .prepare('SELECT COUNT(*) AS n FROM links WHERE group_folder = ?')
+          .get(groupFolder)
+      : db
+          .prepare(
+            'SELECT COUNT(*) AS n FROM links WHERE group_folder = ? AND read = ?',
+          )
+          .get(groupFolder, read ? 1 : 0);
+  return (row as { n: number }).n;
+}
+
+/**
+ * Search a chat's history, both halves of it.
+ *
+ * The match runs in JavaScript for the same reason link search does: SQLite's
+ * `LIKE` and `lower()` fold case for ASCII only, so a SQL search for "Деплой"
+ * would silently miss "деплой" — precisely the failure a search is supposed to
+ * prevent. The scan is capped so a very long history cannot turn one request
+ * into an unbounded read; the cap is far above any realistic personal chat.
+ */
+export const HISTORY_SCAN_LIMIT = 50_000;
+
+export function searchMessages(
+  chatJid: string,
+  query: string,
+  limit = 50,
+): NewMessage[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return [];
+  const rows = db
+    .prepare(
+      `SELECT id, chat_jid, sender, sender_name, content, timestamp,
+              is_from_me, is_bot_message
+       FROM messages
+       WHERE chat_jid = ? AND content IS NOT NULL AND content != ''
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+    )
+    .all(chatJid, HISTORY_SCAN_LIMIT) as NewMessage[];
+
+  const out: NewMessage[] = [];
+  for (const row of rows) {
+    if (String(row.content).toLocaleLowerCase().includes(needle)) {
+      out.push(row);
+      if (out.length >= limit) break;
+    }
+  }
+  return out;
+}
+
+/**
+ * The name the human in this chat goes by, from their most recent message.
+ *
+ * Used when a message enters the chat from somewhere other than the channel
+ * itself — the Mini App — so the agent sees the same person it has been
+ * talking to rather than a new name appearing mid-conversation.
+ */
+export function getLastSenderName(chatJid: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT sender_name FROM messages
+       WHERE chat_jid = ? AND is_bot_message = 0
+         AND sender_name IS NOT NULL AND sender_name != ''
+       ORDER BY timestamp DESC LIMIT 1`,
+    )
+    .get(chatJid) as { sender_name: string } | undefined;
+  return row?.sender_name ?? null;
 }

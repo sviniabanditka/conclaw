@@ -15,6 +15,8 @@
     --text: var(--tg-theme-text-color, #f5f5f5);
     --muted: var(--tg-theme-hint-color, #7d8b99);
     --accent: var(--tg-theme-link-color, #6ab3f3);
+    --btn: var(--tg-theme-button-color, #5288c1);
+    --btn-text: var(--tg-theme-button-text-color, #fff);
     --danger: #e5534b;
   }
   * { box-sizing: border-box; }
@@ -27,9 +29,9 @@
   }
   header { padding: 16px 0 12px; }
   h1 { font-size: 20px; margin: 0; }
-  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; min-height: 18px; }
 
-  nav { display: flex; gap: 6px; margin-bottom: 14px; }
+  nav { display: flex; gap: 6px; margin-bottom: 12px; }
   nav button {
     flex: 1; padding: 9px 0; border: 0; border-radius: 9px;
     background: var(--card); color: var(--muted);
@@ -37,30 +39,48 @@
   }
   nav button[aria-selected="true"] { color: var(--text); font-weight: 600; }
 
-  .card {
-    background: var(--card); border-radius: 12px;
-    padding: 12px 14px; margin-bottom: 8px;
-  }
+  .card { background: var(--card); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
   .row { display: flex; align-items: flex-start; gap: 10px; }
   .row > .grow { flex: 1; min-width: 0; }
   .title { font-weight: 500; word-break: break-word; }
   .meta { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .note { font-size: 13.5px; margin-top: 6px; color: var(--text); opacity: .85; }
   a { color: var(--accent); text-decoration: none; word-break: break-all; }
 
-  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
   .stat { background: var(--card); border-radius: 12px; padding: 12px 14px; }
   .stat b { display: block; font-size: 24px; font-weight: 600; }
   .stat span { color: var(--muted); font-size: 12.5px; }
 
-  .act {
-    border: 0; background: transparent; color: var(--muted);
-    font-size: 17px; cursor: pointer; padding: 2px 4px; line-height: 1;
-  }
+  .act { border: 0; background: transparent; color: var(--muted);
+         font-size: 17px; cursor: pointer; padding: 2px 4px; line-height: 1; }
   .act:disabled { opacity: .35; cursor: default; }
 
+  input, textarea {
+    width: 100%; background: var(--card); color: var(--text);
+    border: 0; border-radius: 9px; padding: 10px 12px; font: inherit;
+  }
+  input::placeholder, textarea::placeholder { color: var(--muted); }
+  textarea { resize: vertical; min-height: 96px; }
+  .send {
+    width: 100%; margin-top: 8px; padding: 11px; border: 0; border-radius: 9px;
+    background: var(--btn); color: var(--btn-text); font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  .send:disabled { opacity: .5; cursor: default; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+  .chip {
+    border: 0; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px;
+    background: var(--card); color: var(--muted); cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--btn); color: var(--btn-text); }
+
+  .editor { margin-top: 10px; display: grid; gap: 6px; }
   .empty, .error { color: var(--muted); text-align: center; padding: 32px 8px; }
   .error { color: var(--danger); }
   .stale { color: var(--danger); }
+  .me { color: var(--accent); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -68,13 +88,14 @@
 
 <header>
   <h1>ConClaw</h1>
-  <div class="sub" id="sub">загрузка…</div>
+  <div class="sub" id="sub"></div>
 </header>
 
 <nav>
   <button data-tab="overview" aria-selected="true">Обзор</button>
   <button data-tab="links" aria-selected="false">Ссылки</button>
-  <button data-tab="tasks" aria-selected="false">Задачи</button>
+  <button data-tab="history" aria-selected="false">История</button>
+  <button data-tab="ask" aria-selected="false">Спросить</button>
 </nav>
 
 <main id="view"><div class="empty">загрузка…</div></main>
@@ -87,6 +108,11 @@
   var view = document.getElementById('view');
   var sub = document.getElementById('sub');
   var tab = 'overview';
+  // Per-tab UI state, kept out of the DOM so a redraw does not lose it.
+  var linkFilter = 'unread';
+  var linkTag = '';
+  var linkQuery = '';
+  var historyQuery = '';
 
   function api(path, method, body) {
     return fetch('/api/' + path, {
@@ -114,17 +140,15 @@
     if (!iso) return '—';
     var d = new Date(iso);
     if (isNaN(d)) return '—';
-    var today = new Date();
-    var sameDay = d.toDateString() === today.toDateString();
     var t = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    return sameDay ? 'сегодня ' + t : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) + ' ' + t;
+    if (d.toDateString() === new Date().toDateString()) return 'сегодня ' + t;
+    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) + ' ' + t;
   }
 
   function ago(ms) {
     if (ms == null) return 'нет данных';
     var m = Math.round(ms / 60000);
-    if (m < 60) return m + ' мин назад';
-    return Math.round(m / 60) + ' ч назад';
+    return m < 60 ? m + ' мин назад' : Math.round(m / 60) + ' ч назад';
   }
 
   function haptic(kind) {
@@ -132,9 +156,12 @@
   }
 
   function render(html) { view.innerHTML = html; }
-  function fail(err) {
-    render('<div class="error">' + esc(err.message) + '</div>');
-    sub.textContent = '';
+  function fail(err) { render('<div class="error">' + esc(err.message) + '</div>'); }
+
+  function qs(params) {
+    var parts = [];
+    for (var k in params) if (params[k]) parts.push(k + '=' + encodeURIComponent(params[k]));
+    return parts.length ? '?' + parts.join('&') : '';
   }
 
   var views = {
@@ -144,61 +171,120 @@
         var stale = d.lastRefreshAgeMs != null && d.lastRefreshAgeMs > 90 * 60000;
         var html =
           '<div class="stats">' +
-            '<div class="stat"><b>' + d.linkCount + '</b><span>ссылок в копилке</span></div>' +
+            '<div class="stat"><b>' + d.unreadLinkCount + '</b><span>непрочитанных ссылок</span></div>' +
             '<div class="stat"><b>' + d.taskCount + '</b><span>задач в расписании</span></div>' +
           '</div>' +
           '<div class="card"><div class="title">Токен</div><div class="meta' +
             (stale ? ' stale' : '') + '">обновлён ' + esc(ago(d.lastRefreshAgeMs)) + '</div></div>';
-        if (d.upcoming.length) {
-          html += d.upcoming.map(function (t) {
-            return '<div class="card"><div class="title">' + esc(t.title) + '</div>' +
-                   '<div class="meta">' + esc(when(t.nextRun)) + '</div></div>';
-          }).join('');
-        }
+        html += d.upcoming.map(function (t) {
+          return '<div class="card"><div class="title">' + esc(t.title) + '</div>' +
+                 '<div class="meta">' + esc(when(t.nextRun)) + '</div></div>';
+        }).join('');
         render(html);
       });
     },
 
     links: function () {
-      return api('links').then(function (d) {
-        sub.textContent = d.links.length + ' сохранено';
-        if (!d.links.length) { render('<div class="empty">Пусто. Кинь ссылку в чат — она попадёт сюда.</div>'); return; }
-        render(d.links.map(function (l) {
-          return '<div class="card" data-url="' + esc(l.url) + '"><div class="row">' +
-            '<div class="grow"><a href="' + esc(l.url) + '" target="_blank" rel="noopener">' + esc(l.url) + '</a>' +
-            '<div class="meta">' + esc(when(l.at)) + '</div></div>' +
-            '<button class="act" data-archive="' + esc(l.url) + '" title="Убрать">✅</button>' +
-          '</div></div>';
-        }).join(''));
+      return api('links' + qs({ filter: linkFilter, tag: linkTag, q: linkQuery })).then(function (d) {
+        sub.textContent = d.links.length + ' показано';
+        var html =
+          '<input id="link-q" placeholder="Поиск по ссылкам" value="' + esc(linkQuery) + '">' +
+          '<div class="chips">' +
+            chip('unread', 'Непрочитанные', linkFilter === 'unread' && !linkTag) +
+            chip('read', 'Прочитанные', linkFilter === 'read' && !linkTag) +
+            chip('all', 'Все', linkFilter === 'all' && !linkTag) +
+            d.tags.map(function (t) {
+              return '<button class="chip" data-tag="' + esc(t) + '" aria-pressed="' +
+                     (linkTag === t) + '">#' + esc(t) + '</button>';
+            }).join('') +
+          '</div>';
+
+        if (!d.links.length) {
+          html += '<div class="empty">Ничего не найдено. Кинь ссылку в чат — она попадёт сюда.</div>';
+        } else {
+          html += d.links.map(function (l) {
+            return '<div class="card" data-id="' + l.id + '"><div class="row"><div class="grow">' +
+              '<a href="' + esc(l.url) + '" target="_blank" rel="noopener">' +
+                esc(l.title || l.url) + '</a>' +
+              (l.description ? '<div class="meta">' + esc(l.description) + '</div>' : '') +
+              '<div class="meta">' + esc(l.domain || '') + ' · ' + esc(when(l.addedAt)) +
+                (l.tags.length ? ' · ' + esc(l.tags.map(function (t) { return '#' + t; }).join(' ')) : '') +
+              '</div>' +
+              (l.note ? '<div class="note">' + esc(l.note) + '</div>' : '') +
+              '<div class="editor" hidden>' +
+                '<input data-field="tags" placeholder="теги через запятую" value="' + esc(l.tags.join(', ')) + '">' +
+                '<input data-field="note" placeholder="заметка" value="' + esc(l.note || '') + '">' +
+                '<button class="send" data-save="' + l.id + '">Сохранить</button>' +
+              '</div>' +
+            '</div>' +
+            '<button class="act" data-read="' + l.id + '" data-value="' + (l.read ? '0' : '1') + '" title="' +
+              (l.read ? 'Вернуть в непрочитанные' : 'Прочитано') + '">' + (l.read ? '↩️' : '✅') + '</button>' +
+            '<button class="act" data-edit="' + l.id + '" title="Теги и заметка">🏷</button>' +
+            '<button class="act" data-del="' + l.id + '" title="Удалить">🗑</button>' +
+            '</div></div>';
+          }).join('');
+        }
+        render(html);
+        focusEnd('link-q');
       });
     },
 
-    tasks: function () {
-      return api('tasks').then(function (d) {
-        sub.textContent = d.tasks.length + ' задач';
-        if (!d.tasks.length) { render('<div class="empty">Задач нет.</div>'); return; }
-        render(d.tasks.map(function (t) {
-          // Derived tasks are regenerated from schedule.md within the minute,
-          // so the button is shown disabled rather than hidden — otherwise the
-          // row looks arbitrarily different with no explanation.
-          return '<div class="card"><div class="row">' +
-            '<div class="grow"><div class="title">' + esc(t.title) + '</div>' +
-            '<div class="meta">' + esc(when(t.nextRun)) +
-              (t.status !== 'active' ? ' · ' + esc(t.status) : '') +
-              (t.derived ? ' · из schedule.md' : '') + '</div></div>' +
-            '<button class="act" data-delete="' + esc(t.id) + '"' +
-              (t.derived ? ' disabled title="Правится в schedule.md"' : ' title="Удалить"') +
-            '>🗑</button>' +
-          '</div></div>';
-        }).join(''));
+    history: function () {
+      var body =
+        '<input id="hist-q" placeholder="Поиск по переписке" value="' + esc(historyQuery) + '">';
+      if (historyQuery.trim().length < 2) {
+        sub.textContent = '';
+        render(body + '<div class="empty">Введи хотя бы два символа.</div>');
+        focusEnd('hist-q');
+        return Promise.resolve();
+      }
+      return api('history' + qs({ q: historyQuery })).then(function (d) {
+        sub.textContent = d.messages.length + ' найдено';
+        render(body + (d.messages.length
+          ? d.messages.map(function (m) {
+              return '<div class="card"><div class="meta' + (m.fromBot ? '' : ' me') + '">' +
+                (m.fromBot ? 'Andy' : 'Ты') + ' · ' + esc(when(m.at)) + '</div>' +
+                '<div class="note">' + esc(m.text.slice(0, 600)) + '</div></div>';
+            }).join('')
+          : '<div class="empty">Ничего не нашлось.</div>'));
+        focusEnd('hist-q');
       });
+    },
+
+    ask: function () {
+      sub.textContent = 'ответ придёт в чат';
+      render(
+        '<textarea id="ask-text" placeholder="Что спросить или поручить?"></textarea>' +
+        '<button class="send" id="ask-send">Отправить</button>'
+      );
+      return Promise.resolve();
     }
   };
 
+  function chip(value, label, active) {
+    return '<button class="chip" data-filter="' + value + '" aria-pressed="' + !!active + '">' +
+           label + '</button>';
+  }
+
+  /** Keep the caret where it was — the list redraws on every keystroke. */
+  function focusEnd(id) {
+    var el = document.getElementById(id);
+    if (!el || !el.value) return;
+    if (document.activeElement === el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }
+
   function load() {
-    render('<div class="empty">загрузка…</div>');
+    if (tab !== 'links' && tab !== 'history') render('<div class="empty">загрузка…</div>');
     views[tab]().catch(fail);
   }
+
+  function debounce(fn, ms) {
+    var t;
+    return function () { clearTimeout(t); t = setTimeout(fn, ms); };
+  }
+  var reload = debounce(load, 250);
 
   document.querySelector('nav').addEventListener('click', function (e) {
     var btn = e.target.closest('button[data-tab]');
@@ -207,31 +293,72 @@
     Array.prototype.forEach.call(this.children, function (b) {
       b.setAttribute('aria-selected', String(b === btn));
     });
+    sub.textContent = '';
     load();
   });
 
+  view.addEventListener('input', function (e) {
+    if (e.target.id === 'link-q') { linkQuery = e.target.value; reload(); }
+    if (e.target.id === 'hist-q') { historyQuery = e.target.value; reload(); }
+  });
+
   view.addEventListener('click', function (e) {
-    var archive = e.target.closest('[data-archive]');
-    var del = e.target.closest('[data-delete]');
-    var btn = archive || del;
-    if (!btn || btn.disabled) return;
+    var el = e.target.closest('button');
+    if (!el || el.disabled) return;
+
+    if (el.dataset.filter) { linkFilter = el.dataset.filter; linkTag = ''; return load(); }
+    if (el.dataset.tag) {
+      // Tapping the active tag clears it, so there is always a way back.
+      linkTag = linkTag === el.dataset.tag ? '' : el.dataset.tag;
+      if (linkTag) linkFilter = 'all';
+      return load();
+    }
+    if (el.dataset.edit) {
+      var editor = el.closest('.card').querySelector('.editor');
+      editor.hidden = !editor.hidden;
+      return;
+    }
+    if (el.dataset.save) {
+      var card = el.closest('.card');
+      return act(el, api('links/update', 'POST', {
+        id: Number(el.dataset.save),
+        tags: card.querySelector('[data-field="tags"]').value,
+        note: card.querySelector('[data-field="note"]').value
+      }));
+    }
+    if (el.dataset.read) {
+      return act(el, api('links/read', 'POST', {
+        id: Number(el.dataset.read), read: el.dataset.value === '1'
+      }));
+    }
+    if (el.dataset.del) {
+      return act(el, api('links/delete', 'POST', { id: Number(el.dataset.del) }));
+    }
+    if (el.id === 'ask-send') {
+      var text = document.getElementById('ask-text').value;
+      if (!text.trim()) return;
+      el.disabled = true;
+      return api('message', 'POST', { text: text }).then(function (r) {
+        if (!r.sent) { el.disabled = false; haptic('error'); sub.textContent = r.reason || 'не отправлено'; return; }
+        haptic('success');
+        render('<div class="empty">Отправлено. Ответ придёт в чат.</div>');
+      }).catch(function (err) { el.disabled = false; fail(err); });
+    }
+  });
+
+  /** Run a mutation, then redraw — counts elsewhere derive from the same data. */
+  function act(btn, promise) {
     btn.disabled = true;
-    var req = archive
-      ? api('links/archive', 'POST', { url: archive.dataset.archive })
-      : api('tasks/delete', 'POST', { id: del.dataset.delete });
-    req.then(function (r) {
-      if (r.removed === 0 || r.deleted === false) {
+    promise.then(function (r) {
+      if (r.updated === false || r.deleted === false) {
         btn.disabled = false;
         haptic('error');
-        if (r.reason) sub.textContent = r.reason;
         return;
       }
       haptic('success');
-      // Reload rather than removing the node: the counts in the header and the
-      // overview tab are derived from the same data and would drift.
       load();
     }).catch(function (err) { btn.disabled = false; fail(err); });
-  });
+  }
 
   load();
 })();

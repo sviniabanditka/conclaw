@@ -6,9 +6,12 @@
  * reply is read even less than the link would have been.
  *
  * So a message that is *only* links is captured silently and acknowledged with a
- * reaction; an evening task reads the day's collection and reports once. A link
- * sent with a question is not this — that is a question, and goes to the agent
- * as normal.
+ * reaction; the archive lives in the database and an evening task reports on it
+ * once. A link sent with a question is not this — that is a question, and goes
+ * to the agent as normal.
+ *
+ * What remains here is the recognising, plus the one-time import of the JSONL
+ * file the archive used to be.
  */
 import fs from 'fs';
 import path from 'path';
@@ -47,29 +50,27 @@ export function linksFilePath(groupDir: string): string {
   return path.join(groupDir, 'links.jsonl');
 }
 
-/** Append captured links. One JSON object per line — cheap to append, easy to read. */
-export function appendLinks(file: string, urls: string[], now: number): void {
-  if (urls.length === 0) return;
-  const at = new Date(now).toISOString();
-  const lines = urls.map((url) => JSON.stringify({ url, at })).join('\n');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, lines + '\n');
-}
-
 /**
- * Drop a link from the collection, returning how many entries went.
+ * Import a pre-database `links.jsonl` and take it out of the way.
  *
- * Rewrites the file from the parsed entries, so corrupt lines are dropped as a
- * side effect — acceptable here because the caller asked to modify the file
- * anyway, unlike {@link readLinks} which must not lose anything it cannot parse.
+ * Links used to live in this file with only a URL and a timestamp. The archive
+ * now lives in SQLite, where it can carry a title, tags and a read flag — but
+ * an install that ran before the move still has a file, and dropping it would
+ * lose links its owner deliberately saved.
+ *
+ * The file is renamed rather than deleted: the import runs on every start, so
+ * it needs an unambiguous "already done", and keeping the original means a
+ * botched import is recoverable by hand.
  */
-export function removeLink(file: string, url: string): number {
-  const kept = readLinks(file).filter((l) => l.url !== url);
-  const before = readLinks(file).length;
-  if (kept.length === before) return 0;
-  const body = kept.map((l) => JSON.stringify(l)).join('\n');
-  fs.writeFileSync(file, body ? body + '\n' : '');
-  return before - kept.length;
+export function migrateLinksFile(
+  file: string,
+  importLink: (url: string, at: string) => void,
+): number {
+  if (!fs.existsSync(file)) return 0;
+  const links = readLinks(file);
+  for (const link of links) importLink(link.url, link.at);
+  fs.renameSync(file, `${file}.imported`);
+  return links.length;
 }
 
 export function readLinks(file: string): CapturedLink[] {

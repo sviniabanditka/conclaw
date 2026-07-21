@@ -3,16 +3,14 @@
  * here are not logic but wiring: a missing auth check on a route, a header that
  * breaks the app inside Telegram Web, an asset path that only resolves in dev.
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import crypto from 'crypto';
-import fs from 'fs';
 import http from 'http';
-import os from 'os';
-import path from 'path';
 
 import { createHandler, startMiniAppServer, INIT_DATA_HEADER } from './server.js';
 import { ApiDeps } from './api.js';
-import { ScheduledTask } from '../types.js';
+import { LinkQuery, LinkRow, LinkUpdate } from '../db.js';
+import { NewMessage, ScheduledTask } from '../types.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -21,6 +19,7 @@ vi.mock('../logger.js', () => ({
 const TOKEN = '123456:test-token';
 const OWNER = 42;
 const FOLDER = 'telegram_main';
+const CHAT = 'tg:1';
 
 function initData(userId = OWNER): string {
   const fields: Record<string, string> = {
@@ -40,46 +39,88 @@ function task(over: Partial<ScheduledTask> = {}): ScheduledTask {
   return {
     id: 'task-1',
     group_folder: FOLDER,
-    chat_jid: 'tg:1',
+    chat_jid: CHAT,
     prompt: 'Do the thing',
     script: null,
     schedule_type: 'once',
-    schedule_value: '2026-07-22T09:00:00.000Z',
+    schedule_value: '2099-01-01T09:00:00.000Z',
     context_mode: 'isolated',
     kind: 'notify',
-    next_run: '2026-07-22T09:00:00.000Z',
+    next_run: '2099-01-01T09:00:00.000Z',
     status: 'active',
     created_at: '2026-07-22T00:00:00.000Z',
     ...over,
   } as ScheduledTask;
 }
 
+function link(over: Partial<LinkRow> = {}): LinkRow {
+  return {
+    id: 1,
+    group_folder: FOLDER,
+    url: 'https://a.com',
+    title: null,
+    description: null,
+    domain: 'a.com',
+    tags: null,
+    note: null,
+    read: 0,
+    added_at: '2026-07-21T10:00:00.000Z',
+    read_at: null,
+    ...over,
+  };
+}
+
 let server: http.Server;
 let base: string;
-let groupsDir: string;
 let tasks: ScheduledTask[];
+let links: LinkRow[];
+let history: NewMessage[];
+let sent: string[];
 const deleted: string[] = [];
+/** Group folders the api layer asked about — proves scoping is not bypassed. */
+const scopes: string[] = [];
 
 beforeAll(async () => {
-  groupsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'miniapp-'));
-  fs.mkdirSync(path.join(groupsDir, FOLDER), { recursive: true });
-  fs.writeFileSync(
-    path.join(groupsDir, FOLDER, 'links.jsonl'),
-    JSON.stringify({ url: 'https://a.com', at: '2026-07-21T10:00:00.000Z' }) +
-      '\n' +
-      JSON.stringify({ url: 'https://b.com', at: '2026-07-21T11:00:00.000Z' }) +
-      '\n',
-  );
-  tasks = [task(), task({ id: 'sched-morning', prompt: '⏰ Подъём' })];
-
   const api: ApiDeps = {
     groupFolder: FOLDER,
-    groupsDir,
+    chatJid: CHAT,
     getTasks: () => tasks,
     deleteTask: (id) => {
       deleted.push(id);
       tasks = tasks.filter((t) => t.id !== id);
     },
+    getLinks: (folder: string, query: LinkQuery = {}) => {
+      scopes.push(folder);
+      let rows = links;
+      if (query.read !== undefined) {
+        rows = rows.filter((l) => (l.read === 1) === query.read);
+      }
+      return rows;
+    },
+    updateLink: (folder: string, id: number, fields: LinkUpdate) => {
+      scopes.push(folder);
+      const row = links.find((l) => l.id === id);
+      if (!row) return false;
+      if (fields.read !== undefined) row.read = fields.read ? 1 : 0;
+      if (fields.tags !== undefined) row.tags = fields.tags;
+      if (fields.note !== undefined) row.note = fields.note;
+      return true;
+    },
+    deleteLink: (folder: string, id: number) => {
+      scopes.push(folder);
+      const before = links.length;
+      links = links.filter((l) => l.id !== id);
+      return links.length < before;
+    },
+    countLinks: (_folder: string, read?: boolean) =>
+      read === undefined
+        ? links.length
+        : links.filter((l) => (l.read === 1) === read).length,
+    searchHistory: (_jid, q) =>
+      history.filter((m) =>
+        String(m.content).toLocaleLowerCase().includes(q.toLocaleLowerCase()),
+      ),
+    sendToAgent: (_jid, text) => sent.push(text),
     lastRefreshAgeMs: () => 60_000,
   };
 
@@ -91,15 +132,32 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${addr.port}`;
 });
 
+beforeEach(() => {
+  tasks = [task(), task({ id: 'sched-morning', prompt: '⏰ Подъём' })];
+  links = [
+    link({ id: 1, url: 'https://a.com', tags: 'rust' }),
+    link({ id: 2, url: 'https://b.com', read: 1, title: 'Про деплой' }),
+  ];
+  history = [
+    {
+      id: 'm1',
+      chat_jid: CHAT,
+      sender: 'u',
+      sender_name: 'U',
+      content: 'Когда мы говорили про Деплой?',
+      timestamp: '2026-07-20T10:00:00.000Z',
+      is_from_me: false,
+    } as NewMessage,
+  ];
+  sent = [];
+});
+
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
-  fs.rmSync(groupsDir, { recursive: true, force: true });
 });
 
 function get(p: string, data?: string): Promise<Response> {
-  return fetch(base + p, {
-    headers: data ? { [INIT_DATA_HEADER]: data } : {},
-  });
+  return fetch(base + p, { headers: data ? { [INIT_DATA_HEADER]: data } : {} });
 }
 
 function post(p: string, body: unknown, data = initData()): Promise<Response> {
@@ -130,8 +188,6 @@ describe('app shell', () => {
     const csp = (await get('/')).headers.get('content-security-policy') || '';
     expect(csp).toContain('frame-ancestors https://web.telegram.org');
     expect(csp).not.toContain("frame-ancestors 'none'");
-    // The Mini App SDK is loaded from telegram.org.
-    expect(csp).toContain('script-src');
     expect(csp).toContain('https://telegram.org');
   });
 
@@ -143,12 +199,33 @@ describe('app shell', () => {
 });
 
 describe('authentication', () => {
-  const guarded = ['/api/overview', '/api/links', '/api/tasks'];
+  const reads = ['/api/overview', '/api/links', '/api/tasks', '/api/history?q=x'];
+  const writes = [
+    '/api/links/read',
+    '/api/links/update',
+    '/api/links/delete',
+    '/api/tasks/delete',
+    '/api/message',
+  ];
 
-  it('rejects every api route with no initData at all', async () => {
-    for (const route of guarded) {
+  it('rejects every read route with no initData at all', async () => {
+    for (const route of reads) {
       expect((await get(route)).status).toBe(401);
     }
+  });
+
+  // The routes that change things matter most, and are the easiest to add
+  // without remembering the guard.
+  it('rejects every write route with no initData at all', async () => {
+    for (const route of writes) {
+      const res = await fetch(base + route, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: 1, text: 'hi' }),
+      });
+      expect(res.status, route).toBe(401);
+    }
+    expect(sent).toEqual([]);
   });
 
   it('rejects a forged initData', async () => {
@@ -163,25 +240,17 @@ describe('authentication', () => {
   });
 
   it('tells the client nothing about why it was refused', async () => {
-    const body = await json(await get('/api/links', initData(999)));
-    expect(body).toEqual({ error: 'unauthorized' });
-  });
-
-  it('guards writes too, not just reads', async () => {
-    const res = await fetch(base + '/api/links/archive', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: 'https://a.com' }),
+    expect(await json(await get('/api/links', initData(999)))).toEqual({
+      error: 'unauthorized',
     });
-    expect(res.status).toBe(401);
   });
 });
 
-describe('api', () => {
-  it('returns an overview', async () => {
-    const res = await get('/api/overview', initData());
-    const body = await json(res);
+describe('overview', () => {
+  it('counts links, unread links and tasks', async () => {
+    const body = await json(await get('/api/overview', initData()));
     expect(body.linkCount).toBe(2);
+    expect(body.unreadLinkCount).toBe(1);
     expect(body.taskCount).toBe(2);
     expect(body.lastRefreshAgeMs).toBe(60_000);
   });
@@ -189,7 +258,6 @@ describe('api', () => {
   // A paused task keeps the next_run it had when it was paused, so it can sit
   // in the past and still sort first. Seen for real on the live install.
   it('leaves paused and past-due tasks out of "upcoming"', async () => {
-    const saved = tasks;
     tasks = [
       task({ id: 'paused-1', status: 'paused', next_run: '2020-01-01T00:00:00.000Z' }),
       task({ id: 'past-1', next_run: '2020-01-02T00:00:00.000Z' }),
@@ -197,30 +265,130 @@ describe('api', () => {
     ];
     const body = await json(await get('/api/overview', initData()));
     expect(body.upcoming.map((t: { id: string }) => t.id)).toEqual(['future-1']);
-    // Still counted — they exist, they are just not next.
     expect(body.taskCount).toBe(3);
-    tasks = saved;
   });
+});
 
-  it('lists links newest first', async () => {
+describe('links', () => {
+  it('shows unread by default — the archive exists to be worked through', async () => {
     const body = await json(await get('/api/links', initData()));
-    expect(body.links.map((l: { url: string }) => l.url)).toEqual([
-      'https://b.com',
-      'https://a.com',
-    ]);
+    expect(body.links.map((l: { id: number }) => l.id)).toEqual([1]);
   });
 
+  it('can show read and all', async () => {
+    const read = await json(await get('/api/links?filter=read', initData()));
+    expect(read.links.map((l: { id: number }) => l.id)).toEqual([2]);
+    const all = await json(await get('/api/links?filter=all', initData()));
+    expect(all.links).toHaveLength(2);
+  });
+
+  it('falls back to the default for a filter it does not recognise', async () => {
+    const body = await json(await get('/api/links?filter=nonsense', initData()));
+    expect(body.links.map((l: { id: number }) => l.id)).toEqual([1]);
+  });
+
+  // Otherwise the tag list empties as soon as a tag is picked, with no way back.
+  it('offers every tag in use, not just those matching the current filter', async () => {
+    const body = await json(await get('/api/links?filter=read', initData()));
+    expect(body.tags).toContain('rust');
+  });
+
+  it('splits tags into a list', async () => {
+    const body = await json(await get('/api/links', initData()));
+    expect(body.links[0].tags).toEqual(['rust']);
+  });
+
+  it('marks a link read and unread', async () => {
+    expect(await json(await post('/api/links/read', { id: 1 }))).toEqual({
+      updated: true,
+    });
+    expect(links.find((l) => l.id === 1)?.read).toBe(1);
+    await post('/api/links/read', { id: 1, read: false });
+    expect(links.find((l) => l.id === 1)?.read).toBe(0);
+  });
+
+  it('sets tags and a note', async () => {
+    await post('/api/links/update', { id: 1, tags: 'rust, async', note: 'later' });
+    const row = links.find((l) => l.id === 1);
+    expect(row?.tags).toBe('rust, async');
+    expect(row?.note).toBe('later');
+  });
+
+  it('ignores an update carrying no recognised field', async () => {
+    expect(await json(await post('/api/links/update', { id: 1, bogus: 'x' }))).toEqual({
+      updated: false,
+    });
+  });
+
+  it('deletes a link', async () => {
+    expect(await json(await post('/api/links/delete', { id: 2 }))).toEqual({
+      deleted: true,
+    });
+    expect(links.map((l) => l.id)).toEqual([1]);
+  });
+
+  it('rejects a non-numeric id rather than coercing it', async () => {
+    expect(await json(await post('/api/links/read', { id: 'abc' }))).toEqual({
+      updated: false,
+    });
+  });
+
+  // The app speaks for one group and must never be able to name another.
+  it('scopes every link query to its own group', async () => {
+    scopes.length = 0;
+    await get('/api/links?filter=all', initData());
+    await post('/api/links/read', { id: 1 });
+    await post('/api/links/delete', { id: 1 });
+    expect(scopes.length).toBeGreaterThan(0);
+    expect(new Set(scopes)).toEqual(new Set([FOLDER]));
+  });
+});
+
+describe('history', () => {
+  it('searches both halves of the conversation', async () => {
+    const body = await json(await get('/api/history?q=деплой', initData()));
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].text).toContain('Деплой');
+  });
+
+  // A one-character query matches nearly everything and is never intentional.
+  it('returns nothing for a query too short to mean anything', async () => {
+    const body = await json(await get('/api/history?q=д', initData()));
+    expect(body.messages).toEqual([]);
+  });
+
+  it('returns nothing rather than erroring with no query at all', async () => {
+    const body = await json(await get('/api/history', initData()));
+    expect(body.messages).toEqual([]);
+  });
+});
+
+describe('sending to the agent', () => {
+  it('hands the text to the chat queue', async () => {
+    expect(await json(await post('/api/message', { text: 'привет' }))).toEqual({
+      sent: true,
+    });
+    expect(sent).toEqual(['привет']);
+  });
+
+  it('refuses an empty message', async () => {
+    const body = await json(await post('/api/message', { text: '   ' }));
+    expect(body.sent).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  it('refuses a message past the length cap', async () => {
+    const body = await json(await post('/api/message', { text: 'x'.repeat(5000) }));
+    expect(body.sent).toBe(false);
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('tasks', () => {
   it('marks schedule-derived tasks so the app can refuse to delete them', async () => {
     const body = await json(await get('/api/tasks', initData()));
     const derived = body.tasks.find((t: { id: string }) => t.id === 'sched-morning');
     expect(derived.derived).toBe(true);
-  });
-
-  it('archives a link', async () => {
-    const res = await post('/api/links/archive', { url: 'https://a.com' });
-    expect(await json(res)).toEqual({ removed: 1 });
-    const after = await json(await get('/api/links', initData()));
-    expect(after.links.map((l: { url: string }) => l.url)).toEqual(['https://b.com']);
   });
 
   // Deleting it would appear to work and then undo itself within the minute.
@@ -232,18 +400,21 @@ describe('api', () => {
   });
 
   it('deletes an ordinary task', async () => {
-    const body = await json(await post('/api/tasks/delete', { id: 'task-1' }));
-    expect(body).toEqual({ deleted: true });
+    expect(await json(await post('/api/tasks/delete', { id: 'task-1' }))).toEqual({
+      deleted: true,
+    });
     expect(deleted).toContain('task-1');
   });
+});
 
+describe('request handling', () => {
   it('404s an unknown route rather than falling through', async () => {
     expect((await get('/api/nope', initData())).status).toBe(404);
     expect((await get('/../etc/passwd')).status).toBe(404);
   });
 
   it('refuses an oversized body instead of buffering it', async () => {
-    const res = await post('/api/links/archive', { url: 'x'.repeat(20_000) });
+    const res = await post('/api/message', { text: 'x'.repeat(20_000) });
     expect(res.status).toBe(400);
   });
 });

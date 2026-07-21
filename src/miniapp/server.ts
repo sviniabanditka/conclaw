@@ -18,7 +18,18 @@ import { fileURLToPath } from 'url';
 
 import { logger } from '../logger.js';
 import { verifyInitData } from './auth.js';
-import { ApiDeps, archiveLink, deleteTask, listLinks, listTasks, overview } from './api.js';
+import {
+  ApiDeps,
+  deleteTask,
+  listLinks,
+  listTasks,
+  overview,
+  removeLink,
+  searchHistory,
+  sendMessage,
+  setLinkFields,
+  setLinkRead,
+} from './api.js';
 
 /** Telegram sends initData in this header; the name is ours, the value is theirs. */
 export const INIT_DATA_HEADER = 'x-telegram-init-data';
@@ -81,6 +92,11 @@ async function readBody(req: http.IncomingMessage): Promise<unknown> {
   }
   if (chunks.length === 0) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+}
+
+/** Anything unrecognised falls back to the default rather than erroring. */
+function asFilter(raw: string | null): 'unread' | 'read' | 'all' | undefined {
+  return raw === 'read' || raw === 'all' || raw === 'unread' ? raw : undefined;
 }
 
 function appShellPath(): string {
@@ -170,10 +186,21 @@ async function handle(
         send(res, 200, overview(opts.api));
         return;
       case '/api/links':
-        send(res, 200, { links: listLinks(opts.api) });
+        send(
+          res,
+          200,
+          listLinks(opts.api, {
+            q: url.searchParams.get('q') ?? undefined,
+            tag: url.searchParams.get('tag') ?? undefined,
+            filter: asFilter(url.searchParams.get('filter')),
+          }),
+        );
         return;
       case '/api/tasks':
         send(res, 200, { tasks: listTasks(opts.api) });
+        return;
+      case '/api/history':
+        send(res, 200, searchHistory(opts.api, url.searchParams.get('q') ?? ''));
         return;
     }
   }
@@ -187,11 +214,24 @@ async function handle(
       return;
     }
     switch (route) {
-      case '/api/links/archive':
-        send(res, 200, archiveLink(opts.api, String(body.url ?? '')));
+      case '/api/links/read':
+        send(
+          res,
+          200,
+          setLinkRead(opts.api, Number(body.id), body.read !== false),
+        );
+        return;
+      case '/api/links/update':
+        send(res, 200, setLinkFields(opts.api, Number(body.id), body));
+        return;
+      case '/api/links/delete':
+        send(res, 200, removeLink(opts.api, Number(body.id)));
         return;
       case '/api/tasks/delete':
         send(res, 200, deleteTask(opts.api, String(body.id ?? '')));
+        return;
+      case '/api/message':
+        send(res, 200, sendMessage(opts.api, String(body.text ?? '')));
         return;
     }
   }

@@ -9,17 +9,26 @@
  * Dependencies come in as functions so the surface can be tested without a
  * database, a filesystem, or a running orchestrator.
  */
-import path from 'path';
-
-import { CapturedLink, linksFilePath, readLinks, removeLink } from '../link-capture.js';
-import { ScheduledTask } from '../types.js';
+import { LinkQuery, LinkRow, LinkUpdate, splitTags } from '../db.js';
+import { NewMessage, ScheduledTask } from '../types.js';
 
 export interface ApiDeps {
   /** The group the app speaks for. */
   groupFolder: string;
-  groupsDir: string;
+  /** That group's chat, for history and for sending. */
+  chatJid: string;
   getTasks: (groupFolder: string) => ScheduledTask[];
   deleteTask: (id: string) => void;
+
+  getLinks: (groupFolder: string, query?: LinkQuery) => LinkRow[];
+  updateLink: (groupFolder: string, id: number, fields: LinkUpdate) => boolean;
+  deleteLink: (groupFolder: string, id: number) => boolean;
+  countLinks: (groupFolder: string, read?: boolean) => number;
+
+  searchHistory: (chatJid: string, query: string, limit?: number) => NewMessage[];
+  /** Hand text to the agent as though it had arrived in the chat. */
+  sendToAgent: (chatJid: string, text: string) => void;
+
   /** Age of the last successful token refresh, in ms, or null if never. */
   lastRefreshAgeMs?: () => number | null;
   now?: () => number;
@@ -36,8 +45,27 @@ export interface TaskView {
   derived: boolean;
 }
 
+export interface LinkView {
+  id: number;
+  url: string;
+  title: string | null;
+  description: string | null;
+  domain: string | null;
+  tags: string[];
+  note: string | null;
+  read: boolean;
+  addedAt: string;
+}
+
+export interface MessageView {
+  at: string;
+  fromBot: boolean;
+  text: string;
+}
+
 export interface Overview {
   linkCount: number;
+  unreadLinkCount: number;
   taskCount: number;
   /** The next few things due, soonest first. */
   upcoming: TaskView[];
@@ -48,11 +76,10 @@ export interface Overview {
 /** Prefixes owned by a sync loop — tasks under them come back after deletion. */
 const DERIVED_PREFIXES = ['sched-', 'cal-', 'sum-'];
 
-function linksFileFor(deps: ApiDeps): string {
-  return linksFilePath(path.join(deps.groupsDir, deps.groupFolder));
-}
+/** Long enough for anything worth saying to the agent, short enough to bound. */
+export const MAX_MESSAGE_LENGTH = 4000;
 
-function toView(task: ScheduledTask): TaskView {
+function toTaskView(task: ScheduledTask): TaskView {
   return {
     id: task.id,
     title: firstLine(task.prompt),
@@ -71,10 +98,7 @@ function firstLine(prompt: string): string {
 }
 
 export function listTasks(deps: ApiDeps): TaskView[] {
-  return deps
-    .getTasks(deps.groupFolder)
-    .map(toView)
-    .sort(byNextRun);
+  return deps.getTasks(deps.groupFolder).map(toTaskView).sort(byNextRun);
 }
 
 function byNextRun(a: TaskView, b: TaskView): number {
@@ -82,17 +106,6 @@ function byNextRun(a: TaskView, b: TaskView): number {
   if (!a.nextRun) return b.nextRun ? 1 : 0;
   if (!b.nextRun) return -1;
   return a.nextRun.localeCompare(b.nextRun);
-}
-
-export function listLinks(deps: ApiDeps): CapturedLink[] {
-  // Newest first: the app is read top-down and a link saved minutes ago is the
-  // one most likely being looked for.
-  return readLinks(linksFileFor(deps)).reverse();
-}
-
-export function archiveLink(deps: ApiDeps, url: string): { removed: number } {
-  if (!url) return { removed: 0 };
-  return { removed: removeLink(linksFileFor(deps), url) };
 }
 
 /**
@@ -116,12 +129,131 @@ export function deleteTask(
   return { deleted: true };
 }
 
+// --- links -----------------------------------------------------------------
+
+function toLinkView(row: LinkRow): LinkView {
+  return {
+    id: row.id,
+    url: row.url,
+    title: row.title,
+    description: row.description,
+    domain: row.domain,
+    tags: splitTags(row.tags),
+    note: row.note,
+    read: row.read === 1,
+    addedAt: row.added_at,
+  };
+}
+
+export interface LinkListQuery {
+  q?: string;
+  tag?: string;
+  /** 'unread' is the default: the archive exists to be worked through. */
+  filter?: 'unread' | 'read' | 'all';
+}
+
+export function listLinks(
+  deps: ApiDeps,
+  query: LinkListQuery = {},
+): { links: LinkView[]; tags: string[] } {
+  const filter = query.filter ?? 'unread';
+  const links = deps
+    .getLinks(deps.groupFolder, {
+      q: query.q,
+      tag: query.tag,
+      read: filter === 'all' ? undefined : filter === 'read',
+    })
+    .map(toLinkView);
+
+  // Every tag in use, not just the ones surviving the current filter —
+  // otherwise the tag list empties out as soon as you pick one and there is
+  // no way back.
+  const tags = new Set<string>();
+  for (const row of deps.getLinks(deps.groupFolder)) {
+    for (const tag of splitTags(row.tags)) tags.add(tag);
+  }
+
+  return { links, tags: [...tags].sort() };
+}
+
+export function setLinkRead(
+  deps: ApiDeps,
+  id: number,
+  read: boolean,
+): { updated: boolean } {
+  if (!Number.isInteger(id)) return { updated: false };
+  return { updated: deps.updateLink(deps.groupFolder, id, { read }) };
+}
+
+export function setLinkFields(
+  deps: ApiDeps,
+  id: number,
+  fields: { tags?: string; note?: string },
+): { updated: boolean } {
+  if (!Number.isInteger(id)) return { updated: false };
+  const update: LinkUpdate = {};
+  if (typeof fields.tags === 'string') update.tags = fields.tags.slice(0, 500);
+  if (typeof fields.note === 'string') update.note = fields.note.slice(0, 2000);
+  if (Object.keys(update).length === 0) return { updated: false };
+  return { updated: deps.updateLink(deps.groupFolder, id, update) };
+}
+
+export function removeLink(deps: ApiDeps, id: number): { deleted: boolean } {
+  if (!Number.isInteger(id)) return { deleted: false };
+  return { deleted: deps.deleteLink(deps.groupFolder, id) };
+}
+
+// --- history ---------------------------------------------------------------
+
+export function searchHistory(
+  deps: ApiDeps,
+  query: string,
+  limit = 50,
+): { messages: MessageView[] } {
+  const q = (query || '').trim();
+  if (q.length < 2) return { messages: [] };
+  const messages = deps
+    .searchHistory(deps.chatJid, q, Math.min(limit, 100))
+    .map((m) => ({
+      at: m.timestamp,
+      fromBot: Boolean(m.is_bot_message),
+      text: String(m.content),
+    }));
+  return { messages };
+}
+
+// --- writing back ----------------------------------------------------------
+
+/**
+ * Say something to the agent from the app.
+ *
+ * The text is handed to the same queue an incoming chat message goes through,
+ * so the reply arrives in Telegram rather than here. That is the honest
+ * behaviour: the agent answers where the conversation lives, and the app does
+ * not need to reimplement streaming, buttons or history to show it.
+ */
+export function sendMessage(
+  deps: ApiDeps,
+  text: string,
+): { sent: boolean; reason?: string } {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return { sent: false, reason: 'empty' };
+  if (trimmed.length > MAX_MESSAGE_LENGTH) {
+    return { sent: false, reason: 'too long' };
+  }
+  deps.sendToAgent(deps.chatJid, trimmed);
+  return { sent: true };
+}
+
+// --- overview --------------------------------------------------------------
+
 export function overview(deps: ApiDeps, upcomingLimit = 5): Overview {
   const tasks = listTasks(deps);
   const nowMs = (deps.now ?? Date.now)();
   const nowIso = new Date(nowMs).toISOString();
   return {
-    linkCount: readLinks(linksFileFor(deps)).length,
+    linkCount: deps.countLinks(deps.groupFolder),
+    unreadLinkCount: deps.countLinks(deps.groupFolder, false),
     taskCount: tasks.length,
     // "Upcoming" has to mean it — a paused task keeps whatever next_run it had
     // when it was paused, so without both filters the list leads with something

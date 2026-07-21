@@ -43,9 +43,9 @@ import {
 } from './container-runner.js';
 import { LiveMessage } from './live-message.js';
 import {
-  appendLinks,
   extractBareLinks,
   linksFilePath,
+  migrateLinksFile,
 } from './link-capture.js';
 import {
   cleanupOrphans,
@@ -71,6 +71,13 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  addLink,
+  getLinks,
+  updateLink,
+  deleteLink,
+  countLinks,
+  searchMessages,
+  getLastSenderName,
 } from './db.js';
 import {
   eventsFilePath,
@@ -443,11 +450,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   if (captured.length > 0) {
     try {
-      appendLinks(
-        linksFilePath(resolveGroupFolderPath(group.folder)),
-        captured,
-        Date.now(),
-      );
+      const at = new Date().toISOString();
+      for (const url of captured) addLink(group.folder, url, at);
       logger.info({ group: group.name, count: captured.length }, 'Links captured');
     } catch (err) {
       logger.error({ group: group.name, err }, 'Failed to capture links');
@@ -1189,11 +1193,32 @@ async function main(): Promise<void> {
     },
   }).start();
 
+  // Links moved from a per-group JSONL file into the database. Runs every
+  // start and is a no-op once each group's file has been taken out of the way.
+  for (const group of Object.values(registeredGroups)) {
+    try {
+      const imported = migrateLinksFile(
+        linksFilePath(resolveGroupFolderPath(group.folder)),
+        (url, at) => addLink(group.folder, url, at),
+      );
+      if (imported > 0) {
+        logger.info(
+          { group: group.name, imported },
+          'Imported links from links.jsonl',
+        );
+      }
+    } catch (err) {
+      logger.error({ group: group.name, err }, 'Failed to import links.jsonl');
+    }
+  }
+
   // Telegram Mini App. The only listening socket in the process, so it stays
   // off unless both a port and an allowlist are configured — see startMiniAppServer.
-  const mainGroupFolder = Object.values(registeredGroups).find((g) => g.isMain)
-    ?.folder;
-  if (MINIAPP_PORT && mainGroupFolder) {
+  const mainJid = Object.keys(registeredGroups).find(
+    (jid) => registeredGroups[jid].isMain,
+  );
+  const mainGroupFolder = mainJid ? registeredGroups[mainJid].folder : undefined;
+  if (MINIAPP_PORT && mainJid && mainGroupFolder) {
     const refreshLog = path.join(LOGS_DIR, 'refresh-token.log');
     startMiniAppServer({
       port: MINIAPP_PORT,
@@ -1201,9 +1226,29 @@ async function main(): Promise<void> {
       allowedUserIds: parseAllowedUserIds(MINIAPP_ALLOWED_USER_IDS),
       api: {
         groupFolder: mainGroupFolder,
-        groupsDir: GROUPS_DIR,
+        chatJid: mainJid,
         getTasks: getTasksForGroup,
         deleteTask,
+        getLinks,
+        updateLink,
+        deleteLink,
+        countLinks,
+        searchHistory: searchMessages,
+        // Stored exactly as an arriving chat message, so the ordinary poll
+        // loop picks it up and the reply lands in Telegram where the rest of
+        // the conversation is.
+        sendToAgent: (jid, text) => {
+          storeMessage({
+            id: `miniapp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            chat_jid: jid,
+            sender: 'miniapp',
+            sender_name: getLastSenderName(jid) || 'User',
+            content: text,
+            timestamp: new Date().toISOString(),
+            is_from_me: false,
+            is_bot_message: false,
+          });
+        },
         lastRefreshAgeMs: () => {
           try {
             return Date.now() - fs.statSync(refreshLog).mtimeMs;
