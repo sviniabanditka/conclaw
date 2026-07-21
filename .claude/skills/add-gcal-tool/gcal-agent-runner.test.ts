@@ -36,4 +36,15 @@ describe('agent-runner wires the Google Calendar MCP server', () => {
   it('points the server at the mounted stub credentials', () => {
     expect(text).toContain('/workspace/extra/.calendar-mcp/credentials.json');
   });
+
+  // MCP stdio children inherit only a safe-list (HOME, PATH, SHELL, ...) that
+  // excludes every var OneCLI needs to intercept googleapis.com. Without an
+  // explicit forward the stub token reaches Google directly and 401s, so the
+  // passthrough is load-bearing, not decoration.
+  it('forwards the OneCLI proxy/TLS env to the calendar server', () => {
+    expect(text).toContain('...onecliProxyEnv()');
+    for (const key of ['HTTPS_PROXY', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE']) {
+      expect(text).toContain(key);
+    }
+  });
 });

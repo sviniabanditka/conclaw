@@ -172,6 +172,12 @@ call. Two edits:
               '/workspace/extra/.calendar-mcp/gcp-oauth.keys.json',
             GOOGLE_CALENDAR_MCP_TOKEN_PATH:
               '/workspace/extra/.calendar-mcp/credentials.json',
+            // MCP stdio servers only inherit a safe-list of env vars (HOME,
+            // PATH, SHELL, ...), which omits everything OneCLI needs to
+            // intercept googleapis.com and swap the stub token for the real
+            // one. Forward them explicitly or the stub leaks straight to
+            // Google and every call 401s.
+            ...onecliProxyEnv(),
           },
         },
       },
@@ -179,6 +185,47 @@ call. Two edits:
 
 The container-runner mounts additional dirs at `/workspace/extra/<name>`, so the
 stub mount from Phase 3 lands exactly at these paths.
+
+**c.** Add the `onecliProxyEnv()` helper near the other top-level helpers (e.g.
+just after `log()`):
+
+```ts
+// Proxy/TLS vars the OneCLI gateway sets on the container so outbound HTTPS is
+// intercepted and real credentials are injected. MCP stdio child processes do
+// not inherit these by default, so servers that call third-party APIs must
+// receive them explicitly.
+const ONECLI_PROXY_ENV_VARS = [
+  'HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy',
+  'NODE_EXTRA_CA_CERTS', 'NODE_USE_ENV_PROXY', 'SSL_CERT_FILE',
+] as const;
+
+function onecliProxyEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of ONECLI_PROXY_ENV_VARS) {
+    const value = process.env[key];
+    if (value) env[key] = value;
+  }
+  return env;
+}
+```
+
+> **Why this is load-bearing, not defensive.** `@modelcontextprotocol/sdk`'s
+> stdio transport builds the child env from `DEFAULT_INHERITED_ENV_VARS` —
+> `HOME`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `USER` — plus whatever `env` you
+> pass. Every var OneCLI sets to route and trust its intercepting proxy
+> (`HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `NODE_USE_ENV_PROXY`)
+> is absent from that list. Omit the forward and `google-calendar-mcp` calls
+> Google **directly**, sending the literal `onecli-managed` stub. Verified by
+> calling `list-calendars` in the built image both ways:
+>
+> | Proxy env | Result |
+> |---|---|
+> | forwarded | `Google API error: app_not_connected` — a **OneCLI** error; intercepted |
+> | omitted | `Invalid Credentials (Authorization)` — a **Google** error; bypassed |
+>
+> The bypass fails identically to "OAuth not connected yet", so it is easy to
+> misdiagnose as a Phase 1 problem. Distinguish them by which service produced
+> the error.
 
 ### 3. Install the guard tests
 
@@ -279,10 +326,29 @@ Common signals:
 - `command not found: google-calendar-mcp` → image not rebuilt (or stale cache).
 - `ENOENT ...credentials.json` → `.calendar-mcp` mount missing for this group, or
   not in the allowlist.
-- `401 Unauthorized` from `*.googleapis.com` → OneCLI isn't injecting; verify
-  Google Calendar is connected and the agent's secret mode.
+- `Invalid Credentials (Authorization)` / `401` **from Google** → the request
+  bypassed the gateway entirely: the `onecliProxyEnv()` forward in Phase 2b/2c is
+  missing, so the `onecli-managed` stub went straight to Google.
+- `app_not_connected` **from OneCLI** → interception works; the provider just
+  isn't connected. Finish Phase 1 (or check the agent's secret mode).
 - "I don't have calendar tools" → agent-runner edits missing or image stale
   (`mcp__calendar__*` not in `allowedTools`, or `calendar` not in `mcpServers`).
+
+To test the server in isolation without going through an agent turn, drive it
+over raw stdio in the built image (swap the `-e`/`-v` flags for the ones
+`onecli.applyContainerConfig()` produces to test *with* the proxy):
+
+```bash
+printf '%s\n%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list-calendars","arguments":{}}}' \
+| docker run -i --rm --add-host host.docker.internal:host-gateway \
+    -v ~/.calendar-mcp:/workspace/extra/.calendar-mcp \
+    -e GOOGLE_OAUTH_CREDENTIALS=/workspace/extra/.calendar-mcp/gcp-oauth.keys.json \
+    -e GOOGLE_CALENDAR_MCP_TOKEN_PATH=/workspace/extra/.calendar-mcp/credentials.json \
+    --entrypoint google-calendar-mcp conclaw-agent:latest
+```
 
 ## Removal
 
