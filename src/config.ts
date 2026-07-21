@@ -10,6 +10,8 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'ONECLI_URL',
   'TZ',
+  'HEARTBEAT_URL',
+  'HEARTBEAT_INTERVAL_MS',
 ]);
 
 export const ASSISTANT_NAME =
@@ -47,9 +49,10 @@ export const SCHEDULE_SYNC_INTERVAL = 60000;
  * Dead-man's switch to an external monitor. Unset disables it — the feature
  * needs a check created at a monitoring service, so it cannot have a default.
  */
-export const HEARTBEAT_URL = process.env.HEARTBEAT_URL || '';
+export const HEARTBEAT_URL =
+  process.env.HEARTBEAT_URL || envConfig.HEARTBEAT_URL || '';
 export const HEARTBEAT_INTERVAL_MS = parseInt(
-  process.env.HEARTBEAT_INTERVAL_MS || '300000',
+  process.env.HEARTBEAT_INTERVAL_MS || envConfig.HEARTBEAT_INTERVAL_MS || '300000',
   10,
 );
 
