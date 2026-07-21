@@ -43,6 +43,16 @@ export const SCHEDULER_POLL_INTERVAL = 60000;
  */
 export const SCHEDULE_SYNC_INTERVAL = 60000;
 
+/**
+ * Dead-man's switch to an external monitor. Unset disables it — the feature
+ * needs a check created at a monitoring service, so it cannot have a default.
+ */
+export const HEARTBEAT_URL = process.env.HEARTBEAT_URL || '';
+export const HEARTBEAT_INTERVAL_MS = parseInt(
+  process.env.HEARTBEAT_INTERVAL_MS || '300000',
+  10,
+);
+
 // Absolute paths needed for container mounts
 const PROJECT_ROOT = process.cwd();
 const HOME_DIR = process.env.HOME || os.homedir();

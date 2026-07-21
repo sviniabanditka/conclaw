@@ -9,6 +9,8 @@ import {
   DEFAULT_TRIGGER,
   getTriggerPattern,
   GROUPS_DIR,
+  HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_URL,
   IDLE_TIMEOUT,
   LIVE_MESSAGE_BACKOFF_MS,
   LIVE_MESSAGE_INTERVAL_MS,
@@ -82,6 +84,7 @@ import {
 } from './sender-allowlist.js';
 import { extractSessionCommand, handleSessionCommand, isSessionCommandAllowed } from './session-commands.js';
 import { startSchedulerLoop } from './task-scheduler.js';
+import { Heartbeat } from './heartbeat.js';
 import { applyReminderAction, reminderButtons } from './reminder-actions.js';
 import { TokenWatchdog } from './token-watchdog.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -935,6 +938,25 @@ async function main(): Promise<void> {
   };
   syncSchedules();
   setInterval(syncSchedules, SCHEDULE_SYNC_INTERVAL).unref?.();
+
+  // Dead-man's switch. Everything else that watches this bot runs inside the
+  // pod and dies with it; only an outside observer can tell that apart from a
+  // quiet day.
+  if (HEARTBEAT_URL) {
+    new Heartbeat({
+      url: HEARTBEAT_URL,
+      intervalMs: HEARTBEAT_INTERVAL_MS,
+      isHealthy: () => {
+        const connected = channels.filter((c) => c.isConnected());
+        if (connected.length === 0) {
+          return { ok: false, reason: 'no channel connected' };
+        }
+        return { ok: true };
+      },
+    }).start();
+  } else {
+    logger.debug('HEARTBEAT_URL not set — external heartbeat disabled');
+  }
 
   // Watch the Claude OAuth credential. Lives here rather than as its own
   // process: a separate supervisor would itself need supervising, and if this
