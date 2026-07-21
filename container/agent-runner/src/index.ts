@@ -119,6 +119,56 @@ function log(message: string): void {
   console.error(`[agent-runner] ${message}`);
 }
 
+/**
+ * Live progress events, for the host to render a message that updates while the
+ * agent works.
+ *
+ * Deliberately a single-line marker rather than the START/END block used for
+ * results: these fire per token, so the host can split them on newlines instead
+ * of scanning for a closing marker. Payload is JSON, so embedded newlines are
+ * escaped and can never be mistaken for a line break.
+ *
+ * Purely additive — a host that does not know this marker ignores the line and
+ * still sees every result through the original protocol.
+ */
+const PROGRESS_MARKER = '---CONCLAW_PROGRESS---';
+
+type ProgressEvent =
+  | { kind: 'delta'; text: string }
+  | { kind: 'tool'; tool: string };
+
+function writeProgress(event: ProgressEvent): void {
+  console.log(PROGRESS_MARKER + JSON.stringify(event));
+}
+
+/**
+ * Turn a raw SDK stream event into a progress event, or null to ignore it.
+ * Only top-level output is surfaced — subagent chatter (parent_tool_use_id set)
+ * would interleave unreadably in a single chat message.
+ */
+function toProgressEvent(message: {
+  event?: unknown;
+  parent_tool_use_id?: string | null;
+}): ProgressEvent | null {
+  if (message.parent_tool_use_id) return null;
+  const event = message.event as {
+    type?: string;
+    delta?: { type?: string; text?: string };
+    content_block?: { type?: string; name?: string };
+  } | undefined;
+  if (!event) return null;
+
+  if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+    const text = event.delta.text;
+    return text ? { kind: 'delta', text } : null;
+  }
+  if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+    const tool = event.content_block.name;
+    return tool ? { kind: 'tool', tool } : null;
+  }
+  return null;
+}
+
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
   const projectDir = path.dirname(transcriptPath);
   const indexPath = path.join(projectDir, 'sessions-index.json');
@@ -412,6 +462,9 @@ async function runQuery(
         'mcp__conclaw__*'
       ],
       env: sdkEnv,
+      // Emits `stream_event` messages carrying token deltas, so the host can
+      // update a live message as the answer is written.
+      includePartialMessages: true,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       settingSources: ['project', 'user'],
@@ -431,6 +484,15 @@ async function runQuery(
       },
     }
   })) {
+    // Partial messages arrive per token. Handle them before the counter and
+    // the per-message log line — at this volume logging each one would bury
+    // every useful line in docker logs and slow the run down.
+    if (message.type === 'stream_event') {
+      const progress = toProgressEvent(message as { event?: unknown; parent_tool_use_id?: string | null });
+      if (progress) writeProgress(progress);
+      continue;
+    }
+
     messageCount++;
     const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
     log(`[msg #${messageCount}] type=${msgType}`);

@@ -34,6 +34,17 @@ const onecli = new OneCLI({ url: ONECLI_URL });
 const OUTPUT_START_MARKER = '---CONCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---CONCLAW_OUTPUT_END---';
 
+/**
+ * Single-line progress marker (must match agent-runner). One line per event,
+ * JSON payload, so a token containing newlines cannot break framing.
+ */
+const PROGRESS_MARKER = '---CONCLAW_PROGRESS---';
+
+/** Live progress from a running agent, used to drive an updating message. */
+export type ProgressEvent =
+  | { kind: 'delta'; text: string }
+  | { kind: 'tool'; tool: string };
+
 export interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -288,6 +299,7 @@ export async function runContainerAgent(
   input: ContainerInput,
   onProcess: (proc: ChildProcess, containerName: string) => void,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  onProgress?: (event: ProgressEvent) => void,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
 
@@ -353,8 +365,41 @@ export async function runContainerAgent(
     let newSessionId: string | undefined;
     let outputChain = Promise.resolve();
 
-    container.stdout.on('data', (data) => {
-      const chunk = data.toString();
+    // Progress arrives as whole lines, but a chunk can split one, so hold the
+    // trailing partial line until its newline shows up.
+    let progressLineBuffer = '';
+
+    /**
+     * Pull progress lines out of a chunk and return what remains.
+     *
+     * Stripping matters beyond tidiness: progress fires per token, and letting
+     * it into `stdout` would burn the 10 MB cap on tokens and truncate away the
+     * very output and error text that buffer exists to preserve.
+     */
+    const extractProgress = (chunk: string): string => {
+      if (!onProgress) return chunk;
+      progressLineBuffer += chunk;
+      let rest = '';
+      let nl: number;
+      while ((nl = progressLineBuffer.indexOf('\n')) !== -1) {
+        const line = progressLineBuffer.slice(0, nl + 1);
+        progressLineBuffer = progressLineBuffer.slice(nl + 1);
+        if (line.startsWith(PROGRESS_MARKER)) {
+          try {
+            onProgress(JSON.parse(line.slice(PROGRESS_MARKER.length).trim()));
+          } catch {
+            // A malformed progress line is cosmetic — never fail the run for it.
+          }
+        } else {
+          rest += line;
+        }
+      }
+      return rest;
+    };
+
+    container.stdout.on('data', (raw) => {
+      const chunk = extractProgress(raw.toString());
+      if (!chunk) return;
 
       // Always accumulate for logging
       if (!stdoutTruncated) {
@@ -462,6 +507,13 @@ export async function runContainerAgent(
     container.on('close', (code) => {
       clearTimeout(timeout);
       const duration = Date.now() - startTime;
+
+      // Flush any trailing line the stream ended on without a newline, so the
+      // non-streaming fallback below can still find markers in `stdout`.
+      if (progressLineBuffer && !progressLineBuffer.startsWith(PROGRESS_MARKER)) {
+        stdout += progressLineBuffer;
+      }
+      progressLineBuffer = '';
 
       if (timedOut) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');

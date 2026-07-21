@@ -227,3 +227,95 @@ describe('container-runner timeout behavior', () => {
     expect(result.newSessionId).toBe('session-456');
   });
 });
+
+// --- live progress marker ---
+
+const PROGRESS_MARKER = '---CONCLAW_PROGRESS---';
+
+describe('container-runner progress parsing', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fakeProc = createFakeProcess();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function runWithProgress(chunks: string[]) {
+    const onOutput = vi.fn(async () => {});
+    const onProgress = vi.fn();
+    const promise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+      onProgress,
+    );
+    for (const c of chunks) fakeProc.stdout.push(c);
+    await vi.advanceTimersByTimeAsync(10);
+    return { promise, onOutput, onProgress };
+  }
+
+  it('delivers progress events', async () => {
+    const { promise, onProgress } = await runWithProgress([
+      `${PROGRESS_MARKER}{"kind":"delta","text":"hi"}\n`,
+      `${PROGRESS_MARKER}{"kind":"tool","tool":"Read"}\n`,
+    ]);
+
+    expect(onProgress).toHaveBeenCalledWith({ kind: 'delta', text: 'hi' });
+    expect(onProgress).toHaveBeenCalledWith({ kind: 'tool', tool: 'Read' });
+
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await promise;
+  });
+
+  // Progress fires per token; letting it into the stdout buffer would burn the
+  // size cap on tokens and truncate away the real output.
+  it('keeps progress lines out of the result stream', async () => {
+    const { promise, onOutput } = await runWithProgress([
+      `${PROGRESS_MARKER}{"kind":"delta","text":"noise"}\n`,
+    ]);
+    emitOutputMarker(fakeProc, { status: 'success', result: 'real answer' });
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(onOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ result: 'real answer' }),
+    );
+
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await promise;
+  });
+
+  it('reassembles a progress line split across chunks', async () => {
+    const { promise, onProgress } = await runWithProgress([
+      `${PROGRESS_MARKER}{"kind":"del`,
+      `ta","text":"split"}\n`,
+    ]);
+
+    expect(onProgress).toHaveBeenCalledWith({ kind: 'delta', text: 'split' });
+
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await promise;
+  });
+
+  it('ignores a malformed progress line without failing the run', async () => {
+    const { promise, onProgress, onOutput } = await runWithProgress([
+      `${PROGRESS_MARKER}{not json}\n`,
+    ]);
+    emitOutputMarker(fakeProc, { status: 'success', result: 'still fine' });
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(onProgress).not.toHaveBeenCalled();
+    expect(onOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ result: 'still fine' }),
+    );
+
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await promise;
+  });
+});
