@@ -12,8 +12,10 @@ import {
   LIVE_MESSAGE_BACKOFF_MS,
   LIVE_MESSAGE_INTERVAL_MS,
   MAX_MESSAGES_PER_PROMPT,
+  LOGS_DIR,
   ONECLI_URL,
   POLL_INTERVAL,
+  SCRIPTS_DIR,
   TELEGRAM_MAX_LENGTH,
   TIMEZONE,
 } from './config.js';
@@ -68,6 +70,7 @@ import {
 } from './sender-allowlist.js';
 import { extractSessionCommand, handleSessionCommand, isSessionCommandAllowed } from './session-commands.js';
 import { startSchedulerLoop } from './task-scheduler.js';
+import { TokenWatchdog } from './token-watchdog.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
@@ -867,6 +870,22 @@ async function main(): Promise<void> {
     logger.fatal('No channels connected');
     process.exit(1);
   }
+
+  // Watch the Claude OAuth credential. Lives here rather than as its own
+  // process: a separate supervisor would itself need supervising, and if this
+  // process is down there is no bot left to keep working.
+  new TokenWatchdog({
+    logPath: path.join(LOGS_DIR, 'refresh-token.log'),
+    scriptPath: path.join(SCRIPTS_DIR, 'refresh-token.sh'),
+    notify: async (message) => {
+      const mainJid = Object.keys(registeredGroups).find(
+        (jid) => registeredGroups[jid].isMain,
+      );
+      if (!mainJid) return;
+      const channel = findChannel(channels, mainJid);
+      await channel?.sendMessage(mainJid, message);
+    },
+  }).start();
 
   // Start subsystems (independently of connection handler)
   startSchedulerLoop({
