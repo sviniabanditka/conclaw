@@ -108,6 +108,33 @@ export function reminderText(entry: ScheduleEntry, leadMinutes: number): string 
   return `⏰ Через ${leadMinutes} минут — *${entry.label}* (${entry.time})`;
 }
 
+/** The morning rundown, rendered from the same rows the reminders come from. */
+export function digestText(entries: ScheduleEntry[]): string {
+  const lines = entries.map((e) => `${e.time} — ${e.label}`);
+  return `☀️ Доброе утро! Расписание на сегодня:\n\n${lines.join('\n')}`;
+}
+
+/**
+ * Cron for the daily rundown: the first row's own time, on the same days.
+ *
+ * Deriving it rather than configuring it keeps the file the only place a time
+ * is written down. Shift the start of the day and the rundown follows, instead
+ * of announcing a schedule that no longer begins then.
+ */
+export function digestCron(
+  entries: ScheduleEntry[],
+  baseDays: number[] = WEEKDAYS,
+): string | null {
+  const first = entries[0];
+  if (!first) return null;
+  const [hh, mm] = first.time.split(':').map(Number);
+  return `${mm} ${hh} * * ${formatDays(shiftDays(baseDays, first.dayOffset))}`;
+}
+
+export function digestTaskId(groupFolder: string): string {
+  return `${TASK_ID_PREFIX}${groupFolder}-digest`;
+}
+
 export function taskIdFor(groupFolder: string, entry: ScheduleEntry): string {
   return `${TASK_ID_PREFIX}${groupFolder}-${entry.time.replace(':', '')}`;
 }
@@ -135,6 +162,23 @@ export function planSync(
   const plan: SyncPlan = { create: [], update: [], remove: [] };
 
   const wanted = new Set<string>();
+
+  const digestSchedule = digestCron(entries);
+  if (digestSchedule) {
+    const id = digestTaskId(groupFolder);
+    wanted.add(id);
+    const prompt = digestText(entries);
+    const current = byId.get(id);
+    if (!current) {
+      plan.create.push({ id, prompt, cron: digestSchedule });
+    } else if (
+      current.prompt !== prompt ||
+      current.schedule_value !== digestSchedule
+    ) {
+      plan.update.push({ id, prompt, cron: digestSchedule });
+    }
+  }
+
   for (const entry of entries) {
     const id = taskIdFor(groupFolder, entry);
     wanted.add(id);

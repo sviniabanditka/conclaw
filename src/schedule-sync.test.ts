@@ -15,6 +15,9 @@ import {
   planSync,
   taskIdFor,
   syncScheduleFile,
+  digestText,
+  digestCron,
+  digestTaskId,
   TASK_ID_PREFIX,
 } from './schedule-sync.js';
 import { ScheduledTask } from './types.js';
@@ -113,9 +116,9 @@ function existingTask(over: Partial<ScheduledTask> = {}): ScheduledTask {
 describe('planSync', () => {
   const entries = parseSchedule(SCHEDULE);
 
-  it('creates a task per row when none exist', () => {
+  it('creates a task per row, plus the daily rundown', () => {
     const plan = planSync('g', entries, []);
-    expect(plan.create).toHaveLength(5);
+    expect(plan.create).toHaveLength(entries.length + 1);
     expect(plan.update).toHaveLength(0);
     expect(plan.remove).toHaveLength(0);
   });
@@ -126,6 +129,13 @@ describe('planSync', () => {
         id: taskIdFor('g', e),
         prompt: `⏰ Через 5 минут — *${e.label}* (${e.time})`,
         schedule_value: reminderCron(e, 5),
+      }),
+    );
+    current.push(
+      existingTask({
+        id: digestTaskId('g'),
+        prompt: digestText(entries),
+        schedule_value: digestCron(entries)!,
       }),
     );
     const plan = planSync('g', entries, current);
@@ -188,12 +198,59 @@ describe('syncScheduleFile', () => {
     try {
       const d = deps({ scheduleFile: file });
       syncScheduleFile(d);
-      expect(d.createTask).toHaveBeenCalledTimes(1);
-      const created = (d.createTask as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(created.kind).toBe('notify');
-      expect(created.schedule_value).toBe('55 9 * * 1-5');
+      // One reminder plus the rundown.
+      expect(d.createTask).toHaveBeenCalledTimes(2);
+      const calls = (d.createTask as ReturnType<typeof vi.fn>).mock.calls;
+      const reminder = calls.map((c) => c[0]).find((t) => !t.id.endsWith('-digest'));
+      expect(reminder.kind).toBe('notify');
+      expect(reminder.schedule_value).toBe('55 9 * * 1-5');
     } finally {
       fs.unlinkSync(file);
     }
+  });
+});
+
+// --- daily rundown ---
+
+describe('digest', () => {
+  const entries = parseSchedule(SCHEDULE);
+
+  it('renders every row from the file', () => {
+    const text = digestText(entries);
+    for (const e of entries) {
+      expect(text).toContain(`${e.time} — ${e.label}`);
+    }
+  });
+
+  // Derived, not configured — otherwise it becomes another copy of the times
+  // that drifts when the file changes, which is the bug this feature fixes.
+  it('fires at the first row of the day', () => {
+    expect(digestCron(entries)).toBe('0 9 * * 1-5');
+  });
+
+  it('follows the file when the day starts later', () => {
+    const later = parseSchedule('| 07:30 | Подъем |\n| 09:00 | Работа |');
+    expect(digestCron(later)).toBe('30 7 * * 1-5');
+  });
+
+  it('has no cron for an empty schedule', () => {
+    expect(digestCron([])).toBeNull();
+  });
+
+  it('is planned as one owned task alongside the reminders', () => {
+    const plan = planSync('g', entries, []);
+    const ids = plan.create.map((c) => c.id);
+    expect(ids).toContain(digestTaskId('g'));
+    expect(ids.filter((i) => i.endsWith('-digest'))).toHaveLength(1);
+  });
+
+  it('is rewritten when a row changes', () => {
+    const existing = existingTask({
+      id: digestTaskId('g'),
+      prompt: 'stale rundown',
+      schedule_value: '0 9 * * 1-5',
+    });
+    const plan = planSync('g', entries, [existing]);
+    expect(plan.update.map((u) => u.id)).toContain(digestTaskId('g'));
   });
 });
