@@ -63,6 +63,10 @@ import {
   deleteTask,
 } from './db.js';
 import {
+  eventsFilePath,
+  syncCalendarEvents,
+} from './calendar-sync.js';
+import {
   scheduleFilePath,
   syncScheduleFile,
 } from './schedule-sync.js';
@@ -933,6 +937,21 @@ async function main(): Promise<void> {
         });
       } catch (err) {
         logger.error({ group: group.folder, err }, 'Schedule sync failed');
+      }
+
+      try {
+        syncCalendarEvents({
+          groupFolder: group.folder,
+          chatJid: jid,
+          eventsFile: eventsFilePath(groupDir),
+          timeZone: TIMEZONE,
+          getTasks: getTasksForGroup,
+          createTask,
+          updateTask,
+          deleteTask,
+        });
+      } catch (err) {
+        logger.error({ group: group.folder, err }, 'Calendar sync failed');
       }
     }
   };
