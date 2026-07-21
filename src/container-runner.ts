@@ -25,6 +25,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { OneCLI } from '@onecli-sh/sdk';
+import { useOAuthPlaceholder } from './anthropic-auth-env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -260,6 +261,10 @@ async function buildContainerArgs(
     agent: agentIdentifier,
   });
   if (onecliApplied) {
+    // The gateway's `ANTHROPIC_API_KEY=placeholder` becomes an `x-api-key`
+    // header that Anthropic 401s on, even next to the valid `Authorization`
+    // the gateway injects. Swap it for the OAuth-shaped placeholder.
+    args.splice(0, args.length, ...useOAuthPlaceholder(args));
     logger.info({ containerName }, 'OneCLI gateway config applied');
   } else {
     logger.warn(
