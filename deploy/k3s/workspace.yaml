@@ -1,0 +1,169 @@
+# ConClaw workspace pod for k3s.
+#
+# Not a deployment of ConClaw itself — this is an interactive dev box on the
+# server with Claude Code and the repo ready, so `/setup` can be run inside it
+# as if it were a local machine.
+#
+# The dind sidecar and the work container mount the same PVC at the SAME path
+# (/workspace). ConClaw spawns agents with `docker run -v <path>:...`, and the
+# daemon resolves those paths in its own filesystem — identical mount paths are
+# what makes the bind mounts line up.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: conclaw
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: conclaw-workspace
+  namespace: conclaw
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 40Gi # agent image carries chromium (~1.5G), plus docker layer cache
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conclaw-workspace
+  namespace: conclaw
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # RWO volume, only one pod may hold it
+  selector:
+    matchLabels: { app: conclaw-workspace }
+  template:
+    metadata:
+      labels: { app: conclaw-workspace }
+    spec:
+      containers:
+        - name: dind
+          image: docker:29-dind
+          securityContext:
+            privileged: true # dockerd will not start without it
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: "" # plain tcp on localhost, pod-local only
+          volumeMounts:
+            - { name: workspace, mountPath: /workspace }
+            - {
+                name: workspace,
+                mountPath: /var/lib/docker,
+                subPath: docker-data,
+              }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "2", memory: 4Gi }
+
+        - name: work
+          image: node:22
+          env:
+            # in env, not just .bashrc — non-interactive shells need it too
+            - {
+                name: PATH,
+                value: /workspace/bin:/workspace/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin,
+              }
+            - { name: DOCKER_HOST, value: tcp://localhost:2375 }
+            - { name: HOME, value: /workspace }
+            - { name: NPM_CONFIG_PREFIX, value: /workspace/.npm-global }
+            - { name: TZ, value: Europe/Kyiv }
+            # without a UTF-8 locale, wcwidth misjudges the box-drawing and
+            # emoji Claude Code renders with, and its TUI comes out misaligned
+            - { name: LANG, value: C.UTF-8 }
+            - { name: LC_ALL, value: C.UTF-8 }
+          workingDir: /workspace
+          volumeMounts:
+            - { name: workspace, mountPath: /workspace }
+          resources:
+            requests: { cpu: 500m, memory: 1Gi }
+            limits: { cpu: "3", memory: 6Gi }
+          # Bootstrap is idempotent and re-runs on restart: everything durable
+          # lands on the PVC, everything apt-installed is cheap to redo.
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              export PATH=/workspace/bin:/workspace/.npm-global/bin:$PATH
+              mkdir -p /workspace/bin /workspace/.npm-global /workspace/tmp
+
+              apt-get update -qq
+              apt-get install -y -qq tmux less nano ca-certificates >/dev/null
+
+              # docker CLI only — the daemon lives in the sidecar
+              if [ ! -x /workspace/bin/docker ]; then
+                curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-29.6.2.tgz \
+                  | tar xz -C /workspace/bin --strip-components=1 docker/docker
+              fi
+
+              command -v claude >/dev/null || npm i -g --silent @anthropic-ai/claude-code
+
+              [ -d /workspace/conclaw ] \
+                || git clone -q https://github.com/sviniabanditka/conclaw.git /workspace/conclaw
+
+              # Login shells (tmux spawns one) source /etc/profile, which
+              # overwrites PATH from the pod env — so re-export it here, where
+              # profile.d is read afterwards. .bashrc covers non-login shells.
+              cat > /etc/profile.d/conclaw.sh <<'EOF'
+              export PATH=/workspace/bin:/workspace/.npm-global/bin:$PATH
+              export DOCKER_HOST=tcp://localhost:2375
+              export HOME=/workspace
+              export LANG=C.UTF-8
+              export LC_ALL=C.UTF-8
+              export TERM=${TERM:-xterm-256color}
+              # OneCLI writes its MITM CA to os.tmpdir(); the dind daemon binds
+              # that path from ITS filesystem, not this one. /tmp differs between
+              # the two containers, so the CA came through as an empty dir and
+              # agents got SELF_SIGNED_CERT_IN_CHAIN. /workspace/tmp is the shared
+              # PVC — same real file on both sides.
+              export TMPDIR=/workspace/tmp
+              cd /workspace/conclaw 2>/dev/null || true
+              EOF
+
+              cat > /workspace/.tmux.conf <<'EOF'
+              set -g default-terminal "screen-256color"
+              set -g mouse on
+              EOF
+              echo 'cd /workspace/conclaw' > /workspace/.bashrc
+
+              # Claude Code refuses --dangerously-skip-permissions as root, so
+              # work happens as the image's stock uid-1000 user, rehomed to the
+              # PVC. docker-data stays root — it belongs to the dind daemon.
+              usermod -d /workspace node
+              chown node:node /workspace
+              for d in bin .npm-global .npm conclaw .bashrc .tmux.conf \
+                       .claude .claude.json; do
+                [ -e "/workspace/$d" ] && chown -R node:node "/workspace/$d"
+              done
+
+              echo "workspace ready: $(node -v), $(docker --version), claude $(claude --version)"
+
+              # Auto-start ConClaw after a pod recreate, so the bot survives
+              # restarts (there is no systemd here). One backgrounded subshell
+              # waits for the dind daemon, then launches the bot and the vault
+              # sync daemon as node, each in its own detached tmux session (you
+              # can `tmux attach -t bot`). OneCLI recovers on its own via its
+              # compose restart policy; ConClaw just needs the daemon up first.
+              (
+                for _ in $(seq 1 30); do
+                  docker -H tcp://localhost:2375 info >/dev/null 2>&1 && break
+                  sleep 2
+                done
+                if [ -f /workspace/conclaw/dist/index.js ] && [ -f /workspace/conclaw/.env ]; then
+                  su node -c 'tmux has-session -t bot 2>/dev/null || tmux new -d -s bot "cd /workspace/conclaw && TMPDIR=/workspace/tmp exec npm start >>logs/run.log 2>&1"'
+                fi
+                # Agents write to the mounted vault but hold no ssh key
+                # (.ssh is a blocked mount), so commit+push lives here on the host.
+                if [ -x /workspace/bin/vault-syncd ] && [ -d /workspace/obsidian-vault/.git ]; then
+                  su node -c 'tmux has-session -t vaultsync 2>/dev/null || tmux new -d -s vaultsync "exec /workspace/bin/vault-syncd"'
+                fi
+              ) &
+
+              sleep infinity
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: conclaw-workspace

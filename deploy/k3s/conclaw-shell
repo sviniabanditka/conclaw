@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Drop into the ConClaw workspace pod on k3s, in a persistent tmux session.
+# Detaching (ctrl-b d) or losing the connection leaves the session running.
+set -euo pipefail
+
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config-k3s}"
+
+kubectl wait -n conclaw --for=condition=ready pod \
+  -l app=conclaw-workspace --timeout=120s >/dev/null
+
+# as the `node` user, not root: Claude Code rejects
+# --dangerously-skip-permissions when running with root privileges
+exec kubectl exec -it -n conclaw deploy/conclaw-workspace -c work \
+  -- su node -c 'tmux -u new -As main'
