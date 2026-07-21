@@ -80,6 +80,28 @@ mkdir -p logs
 
 This runs at minute 0 of every hour. The token expires every ~7 hours, so hourly refresh provides comfortable margin.
 
+### No cron? Use the loop instead
+
+Containers and managed pods often ship without `crond` or systemd timers. Check
+first — `command -v crontab` and `crontab -l` both failing means there is no
+scheduler to install into. In that case use the bundled loop:
+
+```bash
+cp .claude/skills/refresh-token/refresh-token-loop.sh scripts/refresh-token-loop.sh
+chmod +x scripts/refresh-token-loop.sh
+tmux new -d -s refresh 'scripts/refresh-token-loop.sh'
+```
+
+It re-runs the refresh on `REFRESH_INTERVAL_SECONDS` (default 3600) and logs to
+`logs/refresh-token.log`.
+
+> **It dies with its tmux session and does not self-restart.** A killed or
+> restarted pod silently stops refreshing, and nothing surfaces that until the
+> token expires hours later and the agent starts returning
+> `401 authentication_error`. Treat a stale last line in `logs/refresh-token.log`
+> as the real health signal — check it whenever the agent reports an auth error,
+> before suspecting the credential itself.
+
 ### Verify cron is installed
 
 ```bash
