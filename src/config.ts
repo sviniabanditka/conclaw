@@ -12,6 +12,8 @@ const envConfig = readEnvFile([
   'TZ',
   'HEARTBEAT_URL',
   'HEARTBEAT_INTERVAL_MS',
+  'WEATHER_LATITUDE',
+  'WEATHER_LONGITUDE',
 ]);
 
 export const ASSISTANT_NAME =
@@ -44,6 +46,15 @@ export const SCHEDULER_POLL_INTERVAL = 60000;
  * a file read and a diff.
  */
 export const SCHEDULE_SYNC_INTERVAL = 60000;
+
+/**
+ * Coordinates for the weather line in the morning rundown. Unset disables it —
+ * a wrong-city forecast is worse than none.
+ */
+export const WEATHER_LATITUDE =
+  process.env.WEATHER_LATITUDE || envConfig.WEATHER_LATITUDE || '';
+export const WEATHER_LONGITUDE =
+  process.env.WEATHER_LONGITUDE || envConfig.WEATHER_LONGITUDE || '';
 
 /**
  * Dead-man's switch to an external monitor. Unset disables it — the feature

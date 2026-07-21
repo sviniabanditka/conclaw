@@ -108,10 +108,15 @@ export function reminderText(entry: ScheduleEntry, leadMinutes: number): string 
   return `⏰ Через ${leadMinutes} минут — *${entry.label}* (${entry.time})`;
 }
 
-/** The morning rundown, rendered from the same rows the reminders come from. */
-export function digestText(entries: ScheduleEntry[]): string {
+/**
+ * The morning rundown, rendered from the same rows the reminders come from.
+ * `extra` is appended when there is something else worth knowing at that hour,
+ * such as the day's weather.
+ */
+export function digestText(entries: ScheduleEntry[], extra?: string): string {
   const lines = entries.map((e) => `${e.time} — ${e.label}`);
-  return `☀️ Доброе утро! Расписание на сегодня:\n\n${lines.join('\n')}`;
+  const body = `☀️ Доброе утро! Расписание на сегодня:\n\n${lines.join('\n')}`;
+  return extra ? `${body}\n\n${extra}` : body;
 }
 
 /**
@@ -156,6 +161,7 @@ export function planSync(
   entries: ScheduleEntry[],
   existing: ScheduledTask[],
   leadMinutes: number = DEFAULT_LEAD_MINUTES,
+  digestExtra?: string,
 ): SyncPlan {
   const owned = existing.filter((t) => t.id.startsWith(TASK_ID_PREFIX));
   const byId = new Map(owned.map((t) => [t.id, t]));
@@ -167,7 +173,7 @@ export function planSync(
   if (digestSchedule) {
     const id = digestTaskId(groupFolder);
     wanted.add(id);
-    const prompt = digestText(entries);
+    const prompt = digestText(entries, digestExtra);
     const current = byId.get(id);
     if (!current) {
       plan.create.push({ id, prompt, cron: digestSchedule });
@@ -212,6 +218,8 @@ export interface ScheduleSyncDeps {
   deleteTask: (id: string) => void;
   nextRunFor: (cron: string) => string | null;
   leadMinutes?: number;
+  /** Appended to the rundown — the weather line, when available. */
+  digestExtra?: string;
 }
 
 /** Apply one sync pass. Returns the plan that was applied, for logging/tests. */
@@ -231,6 +239,7 @@ export function syncScheduleFile(deps: ScheduleSyncDeps): SyncPlan | null {
     entries,
     deps.getTasks(deps.groupFolder),
     lead,
+    deps.digestExtra,
   );
 
   for (const item of plan.create) {

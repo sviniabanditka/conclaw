@@ -20,6 +20,8 @@ import {
   POLL_INTERVAL,
   SCHEDULE_SYNC_INTERVAL,
   SCRIPTS_DIR,
+  WEATHER_LATITUDE,
+  WEATHER_LONGITUDE,
   TELEGRAM_MAX_LENGTH,
   TIMEZONE,
 } from './config.js';
@@ -68,6 +70,7 @@ import {
   syncCalendarEvents,
 } from './calendar-sync.js';
 import { planSummaries } from './summaries.js';
+import { WeatherCache } from './weather.js';
 import {
   scheduleFilePath,
   syncScheduleFile,
@@ -114,6 +117,16 @@ const queue = new GroupQueue();
  * attached to — a 64-byte callback payload cannot carry it.
  */
 const replyIndex = new ReplyIndex();
+
+/** Weather for the morning rundown; null when coordinates are not configured. */
+const weather =
+  WEATHER_LATITUDE && WEATHER_LONGITUDE
+    ? new WeatherCache({
+        latitude: Number(WEATHER_LATITUDE),
+        longitude: Number(WEATHER_LONGITUDE),
+        timeZone: TIMEZONE,
+      })
+    : null;
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
@@ -939,6 +952,9 @@ async function main(): Promise<void> {
   // timer because the file is edited by hand and by the agent, and a stale
   // reminder is invisible until it fires at the wrong time.
   const syncSchedules = () => {
+    // Fire and forget: the rundown renders with whatever line is cached, so a
+    // slow forecast never delays a sync pass.
+    void weather?.refreshIfStale();
     for (const [jid, group] of Object.entries(registeredGroups)) {
       let groupDir: string;
       try {
@@ -964,6 +980,7 @@ async function main(): Promise<void> {
               return null;
             }
           },
+          digestExtra: weather?.line ?? undefined,
         });
       } catch (err) {
         logger.error({ group: group.folder, err }, 'Schedule sync failed');
