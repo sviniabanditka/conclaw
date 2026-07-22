@@ -40,8 +40,15 @@ There is more than one memory here, and they are not interchangeable:
 
 - **Notes** — what the user *chose* to record, as markdown in the Obsidian vault.
   Load the `notes` skill whenever they ask to write something down, ask what is
-  written down, or ask to change it. This is the only memory they can read and
-  edit themselves, so anything meant for them belongs there and nowhere else.
+  written down, or ask to change it — every time, even if you did it earlier in
+  this session; the skill is where the vault's conventions live and they change.
+  This is the only memory they can read and edit themselves, so anything meant
+  for them belongs there and nowhere else. Three things must hold whether or not
+  you loaded the skill: **write the note yourself, never through a sub-agent** —
+  a sub-agent inherits neither this file nor the skill, so it will get the
+  conventions wrong and its reply is lost; notes go in `conclaw/General/` or
+  `conclaw/Sessions/`, never the root of `conclaw/`; and the filename is the
+  note's title verbatim, because Obsidian links by filename.
 - **Conversation history** — what was literally said, in SQLite. The `history`
   skill searches it. Never answer "when did we discuss X" from recollection.
 - **This folder** — your own working files. Keep them for your scaffolding, not
