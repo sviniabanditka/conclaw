@@ -65,7 +65,7 @@ spec:
             # in env, not just .bashrc — non-interactive shells need it too
             - {
                 name: PATH,
-                value: /workspace/bin:/workspace/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin,
+                value: /workspace/bin:/workspace/.local/bin:/workspace/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin,
               }
             - { name: DOCKER_HOST, value: tcp://localhost:2375 }
             - { name: HOME, value: /workspace }

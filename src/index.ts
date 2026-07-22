@@ -112,6 +112,7 @@ import { Heartbeat } from './heartbeat.js';
 import { applyReminderAction, reminderButtons } from './reminder-actions.js';
 import { ReplyIndex, applyReplyAction, replyButtons } from './reply-actions.js';
 import { TokenWatchdog } from './token-watchdog.js';
+import { transcriptionProblems } from './transcription.js';
 import { startMiniAppServer } from './miniapp/server.js';
 import { parseAllowedUserIds } from './miniapp/auth.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -1192,6 +1193,18 @@ async function main(): Promise<void> {
       await channel?.sendMessage(mainJid, message);
     },
   }).start();
+
+  // Say up front if voice notes cannot be transcribed. The symptom otherwise
+  // is the agent receiving a bare `[Voice message]` hours later and guessing
+  // at the cause, which it does badly and confidently.
+  transcriptionProblems().then(
+    (problems) => {
+      if (problems.length > 0) {
+        logger.warn({ problems }, 'Voice transcription is not fully set up');
+      }
+    },
+    (err) => logger.debug({ err }, 'Transcription check failed'),
+  );
 
   // Links moved from a per-group JSONL file into the database. Runs every
   // start and is a no-op once each group's file has been taken out of the way.
