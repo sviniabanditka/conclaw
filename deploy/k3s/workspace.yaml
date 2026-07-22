@@ -167,6 +167,12 @@ spec:
                 # primary mechanism and the watchdog the fallback.
                 if [ -x /workspace/conclaw/scripts/refresh-token-loop.sh ]; then
                   su node -c 'tmux has-session -t refresh 2>/dev/null || tmux new -d -s refresh "cd /workspace/conclaw && exec scripts/refresh-token-loop.sh"'
+                else
+                  # Installed by /refresh-token, so a fresh clone has none. Say
+                  # so loudly: without it the OAuth token expires within hours
+                  # and every reply fails with a 401 that reads like a broken
+                  # credential rather than a missing scheduler.
+                  echo "WARNING: scripts/refresh-token-loop.sh missing — token refresh is NOT scheduled. Run /refresh-token." >&2
                 fi
                 # Agents write to the mounted vault but hold no ssh key
                 # (.ssh is a blocked mount), so commit+push lives here on the host.

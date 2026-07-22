@@ -101,6 +101,25 @@ AskUserQuestion: Agent access to external directories?
 **No:** `npx tsx setup/index.ts --step mounts -- --empty`
 **Yes:** Collect paths/permissions. `npx tsx setup/index.ts --step mounts -- --json '{"allowedRoots":[...],"blockedPatterns":[],"nonMainReadOnly":true}'`
 
+## 6a. Voice Transcription (optional)
+
+Ask whether the user wants voice notes and audio recordings transcribed. It is
+opt-in because it costs ~600 MB of downloads and a few minutes of compiling.
+
+**Yes:** `bash scripts/install-transcription.sh`, then write the three absolute
+paths it prints into `.env`. They must be absolute: the service's PATH is not
+the shell's, and a bare `ffmpeg` that resolves for you can fail for the daemon —
+this install lost transcription that way for a day.
+
+**No:** skip. Voice messages arrive as `[Voice message]` with the file path, and
+the agent says it cannot transcribe.
+
+## 6b. Google Calendar (optional)
+
+The wiring already ships. Invoke `/add-gcal-tool` — it connects OneCLI to
+Google, writes the stub credentials and mounts them, which is what switches the
+code on.
+
 ## 7. Start Service
 
 If service already running: unload first.
@@ -119,6 +138,21 @@ Run `npx tsx setup/index.ts --step verify` and parse the status block.
 - CHANNEL_AUTH shows `not_found` → re-invoke `/add-telegram`
 - REGISTERED_GROUPS=0 → re-invoke `/add-telegram`
 - MOUNT_ALLOWLIST=missing → `npx tsx setup/index.ts --step mounts -- --empty`
+
+**Fields that report a state rather than a fault.** These do not fail the run,
+but say what is off so nobody assumes otherwise:
+
+- `SERVICE=running_unmanaged` → running, just not under launchd or systemd
+  (a pod without an init system). Fine.
+- `TRANSCRIPTION` lists what is missing → step 6a, or leave it off deliberately.
+- `TOKEN_REFRESH=not_installed` → **fix this one.** Nothing notices until the
+  OAuth token expires a few hours later and every reply returns 401. Run
+  `/refresh-token`.
+- `TOKEN_REFRESH=stale` → the loop is installed but has not run for over 90
+  minutes. Check `tmux ls` and `logs/refresh-token.log`.
+- `MINIAPP=port_without_allowlist` → the port is set but no user is allowed, so
+  the server refuses to start. Set `MINIAPP_ALLOWED_USER_IDS`.
+- `CALENDAR=not_configured` → the calendar code is present and inert. Step 6b.
 
 Tell user to test: send a message in their registered Telegram chat. Show: `tail -f logs/conclaw.log`
 

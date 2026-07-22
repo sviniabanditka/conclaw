@@ -13,18 +13,13 @@ import Database from 'better-sqlite3';
 
 import { STORE_DIR } from '../src/config.js';
 import { readEnvFile } from '../src/env.js';
+import { transcriptionProblems } from '../src/transcription.js';
 import { logger } from '../src/logger.js';
-import {
-  getPlatform,
-  getServiceManager,
-  hasSystemd,
-  isRoot,
-} from './platform.js';
+import { getServiceManager, isRoot } from './platform.js';
 import { emitStatus } from './status.js';
 
 export async function run(_args: string[]): Promise<void> {
   const projectRoot = process.cwd();
-  const platform = getPlatform();
   const homeDir = os.homedir();
 
   logger.info('Starting verification');
@@ -80,6 +75,18 @@ export async function run(_args: string[]): Promise<void> {
       }
     }
   }
+  // Neither manager knows about it — but "not managed" is not "not running".
+  // A pod without systemd runs it under tmux or nohup, and reporting that as a
+  // dead service sends you restarting something that is already up.
+  if (service !== 'running') {
+    try {
+      execSync('pgrep -f "node dist/index.js"', { stdio: 'ignore' });
+      service = 'running_unmanaged';
+    } catch {
+      // Genuinely not running.
+    }
+  }
+
   logger.info({ service }, 'Service status');
 
   // 2. Check container runtime
@@ -160,9 +167,51 @@ export async function run(_args: string[]): Promise<void> {
     mountAllowlist = 'configured';
   }
 
+  // 7. Features that fail quietly.
+  //
+  // Everything above is missing in a way you notice within a minute. These are
+  // the ones that look installed and do nothing: a voice note comes back as
+  // `[Voice message]` with no explanation hours later, and a Mini App with no
+  // allowlist simply refuses to open its port. Both happened here.
+  const transcription = await transcriptionProblems();
+
+  const miniapp = readEnvFile(['MINIAPP_PORT', 'MINIAPP_ALLOWED_USER_IDS']);
+  const miniappPort = process.env.MINIAPP_PORT || miniapp.MINIAPP_PORT;
+  const miniappUsers =
+    process.env.MINIAPP_ALLOWED_USER_IDS || miniapp.MINIAPP_ALLOWED_USER_IDS;
+  const miniappState = !miniappPort
+    ? 'disabled'
+    : miniappUsers
+      ? 'configured'
+      : 'port_without_allowlist';
+
+  // The calendar wiring ships on main and stays inert until these exist, so
+  // their absence is a state, not a fault.
+  const calendarStubs = fs.existsSync(
+    path.join(homeDir, '.calendar-mcp', 'gcp-oauth.keys.json'),
+  )
+    ? 'configured'
+    : 'not_configured';
+
+  // Token refresh is scheduled outside this process, so nothing here notices
+  // its absence until the credential expires hours later and every reply
+  // starts failing with a 401 that reads like a broken key.
+  const refreshScript = path.join(projectRoot, 'scripts', 'refresh-token-loop.sh');
+  const refreshLog = path.join(projectRoot, 'logs', 'refresh-token.log');
+  let tokenRefresh = 'not_installed';
+  if (fs.existsSync(refreshScript)) {
+    try {
+      const ageMs = Date.now() - fs.statSync(refreshLog).mtimeMs;
+      // The loop runs hourly; ninety minutes tolerates one missed cycle.
+      tokenRefresh = ageMs < 90 * 60_000 ? 'running' : 'stale';
+    } catch {
+      tokenRefresh = 'never_ran';
+    }
+  }
+
   // Determine overall status
   const status =
-    service === 'running' &&
+    (service === 'running' || service === 'running_unmanaged') &&
     credentials !== 'missing' &&
     anyChannelConfigured &&
     registeredGroups > 0
@@ -179,6 +228,10 @@ export async function run(_args: string[]): Promise<void> {
     CHANNEL_AUTH: JSON.stringify(channelAuth),
     REGISTERED_GROUPS: registeredGroups,
     MOUNT_ALLOWLIST: mountAllowlist,
+    TRANSCRIPTION: transcription.length === 0 ? 'ready' : transcription.join('; '),
+    TOKEN_REFRESH: tokenRefresh,
+    MINIAPP: miniappState,
+    CALENDAR: calendarStubs,
     STATUS: status,
     LOG: 'logs/setup.log',
   });
