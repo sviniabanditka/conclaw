@@ -9,6 +9,7 @@ import { readEnvFile } from '../env.js';
 import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
 import { transcribeAudio } from '../transcription.js';
+import { markForwarded } from '../forward-origin.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
@@ -233,7 +234,7 @@ export class TelegramChannel implements Channel {
         chat_jid: chatJid,
         sender,
         sender_name: senderName,
-        content,
+        content: markForwarded(content, ctx.message.forward_origin),
         timestamp,
         is_from_me: false,
         thread_id: threadId ? threadId.toString() : undefined,
@@ -252,7 +253,7 @@ export class TelegramChannel implements Channel {
     const storeMedia = (
       ctx: any,
       placeholder: string,
-      opts?: { fileId?: string; filename?: string },
+      opts?: { fileId?: string; filename?: string; transcribe?: boolean },
     ) => {
       const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.registeredGroups()[chatJid];
@@ -282,7 +283,7 @@ export class TelegramChannel implements Channel {
           chat_jid: chatJid,
           sender: ctx.from?.id?.toString() || '',
           sender_name: senderName,
-          content,
+          content: markForwarded(content, ctx.message.forward_origin),
           timestamp,
           is_from_me: false,
         });
@@ -295,11 +296,36 @@ export class TelegramChannel implements Channel {
           opts.filename ||
           `${placeholder.replace(/[\[\] ]/g, '').toLowerCase()}_${msgId}`;
         this.downloadFile(opts.fileId, group.folder, filename).then(
-          (filePath) => {
-            if (filePath) {
-              deliver(`${placeholder} (${filePath})${caption}`);
-            } else {
+          async (filePath) => {
+            if (!filePath) {
               deliver(`${placeholder}${caption}`);
+              return;
+            }
+            if (!opts.transcribe) {
+              deliver(`${placeholder} (${filePath})${caption}`);
+              return;
+            }
+
+            const localPath = path.join(
+              resolveGroupFolderPath(group.folder),
+              'attachments',
+              path.basename(filePath),
+            );
+            const outcome = await transcribeAudio(localPath);
+            if (outcome.ok) {
+              // Named as a recording rather than a voice note: the `voice-notes`
+              // skill turns a spoken note into reminders, which is the wrong
+              // thing to do with an hour of meeting.
+              deliver(
+                `[Recording transcription: ${filename}]\n${outcome.text}${caption}`,
+              );
+            } else if (outcome.reason === 'too-long') {
+              const minutes = Math.round(outcome.seconds / 60);
+              deliver(
+                `${placeholder} (${filePath}) — запись на ${minutes} мин, слишком длинная для расшифровки${caption}`,
+              );
+            } else {
+              deliver(`${placeholder} (${filePath})${caption}`);
             }
           },
         );
@@ -364,9 +390,12 @@ export class TelegramChannel implements Channel {
               'attachments',
               path.basename(filePath),
             );
-            const transcript = await transcribeAudio(localPath);
-            if (transcript) {
-              content = `[Voice message transcription: ${transcript}]${caption}`;
+            const outcome = await transcribeAudio(localPath);
+            if (outcome.ok) {
+              content = `[Voice message transcription: ${outcome.text}]${caption}`;
+            } else if (outcome.reason === 'too-long') {
+              const minutes = Math.round(outcome.seconds / 60);
+              content = `[Voice message] (${filePath}) — запись на ${minutes} мин, слишком длинная для расшифровки${caption}`;
             } else {
               content = `[Voice message] (${filePath})${caption}`;
             }
@@ -391,12 +420,26 @@ export class TelegramChannel implements Channel {
         },
       );
     });
+    // A sent audio file is usually a recording of something — a meeting, a
+    // lecture, a call — so it gets transcribed like a voice note. Unlike a
+    // voice note it can be an hour long, and transcription runs at roughly
+    // real time, so anything past a couple of minutes gets an acknowledgement
+    // first: silence for half an hour is indistinguishable from a broken bot.
     this.bot.on('message:audio', (ctx) => {
       const name =
         ctx.message.audio?.file_name || `audio_${ctx.message.message_id}`;
+      const seconds = ctx.message.audio?.duration ?? 0;
+      if (seconds > 120) {
+        const minutes = Math.round(seconds / 60);
+        void this.sendMessage(
+          `tg:${ctx.chat.id}`,
+          `🎧 Расшифровываю запись на ${minutes} мин — это займёт примерно столько же.`,
+        ).catch(() => {});
+      }
       storeMedia(ctx, '[Audio]', {
         fileId: ctx.message.audio?.file_id,
         filename: name,
+        transcribe: true,
       });
     });
     this.bot.on('message:document', (ctx) => {

@@ -10,6 +10,7 @@
  */
 import { execFile } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import { readEnvFile } from './env.js';
@@ -52,30 +53,92 @@ function convertToWav(inputPath: string): Promise<string | null> {
 }
 
 /**
+ * How long a recording may be before transcription is refused.
+ *
+ * Measured on this install: whisper.cpp with the `small` model runs at roughly
+ * real time — 45 s of CPU for 40 s of audio — and pegs every core it is given
+ * for the whole run, on the same box as the bot. Half an hour of audio is
+ * therefore half an hour of grinding, which is the most that is worth doing
+ * without asking.
+ */
+export const MAX_AUDIO_SECONDS = 30 * 60;
+
+/** Duration in seconds, or null when ffprobe cannot say. */
+export function audioDurationSeconds(filePath: string): Promise<number | null> {
+  const probe = FFMPEG_BIN.replace(/ffmpeg$/, 'ffprobe');
+  return new Promise((resolve) => {
+    execFile(
+      probe,
+      [
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'csv=p=0',
+        filePath,
+      ],
+      { timeout: 15_000 },
+      (err, stdout) => {
+        if (err) {
+          logger.debug({ err, filePath }, 'ffprobe failed');
+          resolve(null);
+          return;
+        }
+        const seconds = parseFloat(String(stdout).trim());
+        resolve(Number.isFinite(seconds) ? seconds : null);
+      },
+    );
+  });
+}
+
+export type TranscriptionOutcome =
+  | { ok: true; text: string; seconds: number | null }
+  | { ok: false; reason: 'too-long'; seconds: number }
+  | { ok: false; reason: 'failed' };
+
+/**
  * Transcribe an audio file using whisper.cpp.
- * Returns the transcribed text, or null on failure.
+ *
+ * Refuses anything past {@link MAX_AUDIO_SECONDS} rather than starting a run
+ * that will not finish: the caller can then say so, which is far better than a
+ * silent timeout an hour later.
  */
 export async function transcribeAudio(
   filePath: string,
-): Promise<string | null> {
+): Promise<TranscriptionOutcome> {
   if (!fs.existsSync(WHISPER_MODEL)) {
     logger.warn({ model: WHISPER_MODEL }, 'Whisper model not found');
-    return null;
+    return { ok: false, reason: 'failed' };
+  }
+
+  const seconds = await audioDurationSeconds(filePath);
+  if (seconds !== null && seconds > MAX_AUDIO_SECONDS) {
+    logger.info({ filePath, seconds }, 'Recording too long to transcribe');
+    return { ok: false, reason: 'too-long', seconds };
   }
 
   // Convert to WAV if not already
   let wavPath = filePath;
   if (!filePath.endsWith('.wav')) {
     const converted = await convertToWav(filePath);
-    if (!converted) return null;
+    if (!converted) return { ok: false, reason: 'failed' };
     wavPath = converted;
   }
+
+  // Roughly real time, so the budget has to scale with the recording. The
+  // floor covers model load on a short clip; the multiplier is headroom for a
+  // box that is also running the bot and a container or two.
+  const timeoutMs = Math.max(120_000, (seconds ?? 0) * 3_000);
 
   return new Promise((resolve) => {
     execFile(
       WHISPER_BIN,
-      ['-m', WHISPER_MODEL, '-l', 'auto', '--no-timestamps', '-f', wavPath],
-      { timeout: 120_000 },
+      [
+        '-m', WHISPER_MODEL,
+        '-l', 'auto',
+        '-t', String(Math.max(1, os.cpus().length)),
+        '--no-timestamps',
+        '-f', wavPath,
+      ],
+      { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 },
       (err, stdout, stderr) => {
         // Clean up converted WAV
         if (wavPath !== filePath) {
@@ -87,22 +150,22 @@ export async function transcribeAudio(
             { err, stderr, whisper: WHISPER_BIN },
             'Whisper transcription failed',
           );
-          resolve(null);
+          resolve({ ok: false, reason: 'failed' });
           return;
         }
 
         const text = stdout.trim();
         if (!text) {
           logger.warn({ filePath }, 'Whisper returned empty transcription');
-          resolve(null);
+          resolve({ ok: false, reason: 'failed' });
           return;
         }
 
         logger.info(
-          { filePath, chars: text.length },
-          'Voice message transcribed',
+          { filePath, chars: text.length, seconds },
+          'Audio transcribed',
         );
-        resolve(text);
+        resolve({ ok: true, text, seconds });
       },
     );
   });
