@@ -113,6 +113,7 @@ import { startSchedulerLoop } from './task-scheduler.js';
 import { Heartbeat } from './heartbeat.js';
 import { applyReminderAction, reminderButtons } from './reminder-actions.js';
 import { ReplyIndex, applyReplyAction, replyButtons } from './reply-actions.js';
+import { TraceStore, TurnRecorder } from './turn-trace.js';
 import {
   applyRuleAction,
   learnButton,
@@ -179,6 +180,9 @@ const repliedTasks = new ReplyIndex();
  * reminded about or filed as a note.
  */
 const awaitingProposal = new Set<string>();
+
+/** What went into the last few answers, for the Mini App's "why" panel. */
+const traces = new TraceStore();
 
 /** Weather for the morning rundown; null when coordinates are not configured. */
 const weather =
@@ -530,8 +534,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // mid-session would not apply until the next one — exactly when it is least
   // likely to be remembered and most likely to be needed.
   const rulesFile = rulesFilePath(resolveGroupFolderPath(group.folder));
+  const activeRules = readRules(rulesFile);
   const prompt =
-    rulesPromptBlock(readRules(rulesFile)) + formatMessages(forAgent, TIMEZONE);
+    rulesPromptBlock(activeRules) + formatMessages(forAgent, TIMEZONE);
+  const recorder = new TurnRecorder(activeRules.length);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -655,12 +661,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         await channel.setTyping?.(chatJid, false).catch(() => {});
         await finalizeReactions(channel, chatJid, '💔');
       }
-    }, (event) => live.onProgress(event));
+    }, (event) => {
+      // The recorder wants every event; the live message only renders some.
+      if (event.kind === 'skill') recorder.skill(event.name);
+      if (event.kind === 'tool') recorder.tool(event.tool);
+      live.onProgress(event);
+    });
   } catch (err) {
     // A throw here used to skip the reaction cleanup below, stranding 👀.
     logger.error({ group: group.name, err }, 'Agent run threw');
     output = 'error';
   } finally {
+    traces.record(chatJid, recorder.finish());
     // Safety net only — the common path already settled per result above. This
     // catches runs that ended without ever producing one (crash, timeout, kill),
     // and is a no-op when nothing is left pending.
@@ -1421,6 +1433,7 @@ async function main(): Promise<void> {
           ),
         rejectSkill: (name) =>
           rejectProposal(resolveGroupFolderPath(mainGroupFolder), name),
+        recentTurns: (jid) => traces.recent(jid),
         sendToAgent: injectUserMessage,
         lastRefreshAgeMs: () => {
           try {

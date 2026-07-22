@@ -44,7 +44,9 @@ const PROGRESS_MARKER = '---CONCLAW_PROGRESS---';
 /** Live progress from a running agent, used to drive an updating message. */
 export type ProgressEvent =
   | { kind: 'delta'; text: string }
-  | { kind: 'tool'; tool: string };
+  | { kind: 'tool'; tool: string }
+  /** A skill was loaded, by name — see the agent-runner for why it is separate. */
+  | { kind: 'skill'; name: string };
 
 export interface ContainerInput {
   prompt: string;

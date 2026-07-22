@@ -135,7 +135,18 @@ const PROGRESS_MARKER = '---CONCLAW_PROGRESS---';
 
 type ProgressEvent =
   | { kind: 'delta'; text: string }
-  | { kind: 'tool'; tool: string };
+  | { kind: 'tool'; tool: string }
+  /**
+   * A skill was loaded, by name. The streaming events carry only the tool name
+   * ("Skill"), and the argument naming which skill arrives later as JSON
+   * fragments — so this is emitted from the completed assistant message
+   * instead, where the tool input is whole.
+   *
+   * Without it there is no way to tell which skill an answer came from, and a
+   * skill that silently never loads looks exactly like one that loaded and was
+   * ignored.
+   */
+  | { kind: 'skill'; name: string };
 
 function writeProgress(event: ProgressEvent): void {
   console.log(PROGRESS_MARKER + JSON.stringify(event));
@@ -167,6 +178,31 @@ function toProgressEvent(message: {
     return tool ? { kind: 'tool', tool } : null;
   }
   return null;
+}
+
+/**
+ * Names of skills invoked in one assistant message.
+ *
+ * The key holding the skill name is read defensively: it is decided by the SDK
+ * rather than by us, and a rename there should cost the audit trail, not the
+ * turn.
+ */
+function skillsInvokedBy(message: unknown): string[] {
+  const content = (message as { message?: { content?: unknown } }).message?.content;
+  if (!Array.isArray(content)) return [];
+  const names: string[] = [];
+  for (const block of content) {
+    const b = block as { type?: string; name?: string; input?: Record<string, unknown> };
+    if (b.type !== 'tool_use' || b.name !== 'Skill' || !b.input) continue;
+    for (const key of ['skill', 'name', 'command', 'skill_name']) {
+      const value = b.input[key];
+      if (typeof value === 'string' && value) {
+        names.push(value);
+        break;
+      }
+    }
+  }
+  return names;
 }
 
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
@@ -499,6 +535,12 @@ async function runQuery(
 
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
+    }
+
+    if (message.type === 'assistant') {
+      for (const name of skillsInvokedBy(message)) {
+        writeProgress({ kind: 'skill', name });
+      }
     }
 
     if (message.type === 'system' && message.subtype === 'init') {

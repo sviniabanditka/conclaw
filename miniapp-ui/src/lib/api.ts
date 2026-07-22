@@ -45,10 +45,19 @@ export interface ProposalView {
   content: string;
 }
 
+export interface TurnTrace {
+  skills: string[];
+  tools: Record<string, number>;
+  rules: number;
+  startedAt: string;
+  durationMs: number;
+}
+
 export interface Brain {
   rules: Rule[];
   skills: InstalledSkill[];
   proposals: ProposalView[];
+  turns: TurnTrace[];
 }
 
 export interface Overview {

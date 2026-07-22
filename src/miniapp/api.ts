@@ -12,6 +12,7 @@
 import { LinkQuery, LinkRow, LinkUpdate, splitTags } from '../db.js';
 import type { Rule } from '../rules.js';
 import type { InstalledSkill, SkillProposal } from '../skill-proposals.js';
+import type { TurnTrace } from '../turn-trace.js';
 import { NewMessage, ScheduledTask } from '../types.js';
 
 export interface ApiDeps {
@@ -43,6 +44,8 @@ export interface ApiDeps {
   readProposal: (name: string) => string | null;
   promoteSkill: (name: string) => { promoted: boolean; reason?: string };
   rejectSkill: (name: string) => boolean;
+  /** What went into the last few answers. */
+  recentTurns: (chatJid: string) => TurnTrace[];
 
   /** Age of the last successful token refresh, in ms, or null if never. */
   lastRefreshAgeMs?: () => number | null;
@@ -295,6 +298,8 @@ export interface Brain {
   rules: Rule[];
   skills: InstalledSkill[];
   proposals: ProposalView[];
+  /** Newest first — the answer being looked at is the one on top. */
+  turns: TurnTrace[];
 }
 
 export function brain(deps: ApiDeps): Brain {
@@ -307,6 +312,7 @@ export function brain(deps: ApiDeps): Brain {
       replaces: p.replaces,
       content: deps.readProposal(p.name) ?? '',
     })),
+    turns: deps.recentTurns(deps.chatJid),
   };
 }
 

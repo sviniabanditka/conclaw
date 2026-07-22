@@ -148,6 +148,15 @@ beforeAll(async () => {
       discarded.push(name);
       return true;
     },
+    recentTurns: () => [
+      {
+        skills: ['notes'],
+        tools: { Read: 2, Write: 1 },
+        rules: 3,
+        startedAt: '2026-07-22T18:00:00.000Z',
+        durationMs: 4200,
+      },
+    ],
 
     lastRefreshAgeMs: () => 60_000,
   };
@@ -552,6 +561,15 @@ describe('brain', () => {
     expect(body.rules.map((r: Rule) => r.text)).toContain('Не делегировать сабагенту');
     expect(body.skills.map((s: { name: string }) => s.name)).toContain('notes');
     expect(body.proposals[0].name).toBe('weather-jokes');
+  });
+
+  // Working out which skill an answer came from used to mean reading docker
+  // logs, which is how this install found that a skill had never loaded.
+  it('says which skills the last answers actually loaded', async () => {
+    const body = await json(await get('/api/brain', initData()));
+    expect(body.turns[0].skills).toEqual(['notes']);
+    expect(body.turns[0].tools.Read).toBe(2);
+    expect(body.turns[0].rules).toBe(3);
   });
 
   // Approving prose that instructs an agent, having read one line, is not a

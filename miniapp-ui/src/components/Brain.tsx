@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, GraduationCap, Puzzle, Trash2 } from 'lucide-react';
+import { ChevronDown, GraduationCap, Puzzle, Trash2, Wrench } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardMeta, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { api, type Brain as BrainData, type ProposalView } from '@/lib/api';
+import {
+  api,
+  type Brain as BrainData,
+  type ProposalView,
+  type TurnTrace,
+} from '@/lib/api';
 import { when } from '@/lib/format';
 import { haptic, tap } from '@/lib/telegram';
 
@@ -104,6 +109,43 @@ function Proposal({
   );
 }
 
+/**
+ * What went into one answer. Answering "why did it do that" used to mean
+ * reading container logs — which is how this install found a skill that had
+ * never loaded while everyone assumed its contents were wrong.
+ */
+function Turn({ turn }: { turn: TurnTrace }) {
+  const tools = Object.entries(turn.tools).sort((a, b) => b[1] - a[1]);
+  return (
+    <Card>
+      <CardMeta className="mt-0">
+        {when(turn.startedAt)} · {(turn.durationMs / 1000).toFixed(1)} с ·{' '}
+        {turn.rules} прав.
+      </CardMeta>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {turn.skills.length === 0 ? (
+          <span className="text-muted-foreground text-[13px]">
+            скиллы не загружались
+          </span>
+        ) : (
+          turn.skills.map((s) => <Badge key={s}>{s}</Badge>)
+        )}
+      </div>
+      {tools.length > 0 && (
+        <CardMeta className="flex flex-wrap items-center gap-x-2">
+          <Wrench className="size-3" />
+          {tools.map(([name, n]) => (
+            <span key={name}>
+              {name}
+              {n > 1 ? ` ×${n}` : ''}
+            </span>
+          ))}
+        </CardMeta>
+      )}
+    </Card>
+  );
+}
+
 export function Brain({ onError }: { onError: (e: Error) => void }) {
   const [data, setData] = useState<BrainData | null>(null);
 
@@ -145,7 +187,18 @@ export function Brain({ onError }: { onError: (e: Error) => void }) {
         </>
       )}
 
-      <div className="text-muted-foreground mt-2 flex items-center gap-1.5 px-1 text-[12.5px] tracking-wide uppercase">
+      {data.turns.length > 0 && (
+        <>
+          <div className="text-muted-foreground mt-2 px-1 text-[12.5px] tracking-wide uppercase">
+            Последние ответы
+          </div>
+          {data.turns.map((t) => (
+            <Turn key={t.startedAt} turn={t} />
+          ))}
+        </>
+      )}
+
+      <div className="text-muted-foreground mt-3 flex items-center gap-1.5 px-1 text-[12.5px] tracking-wide uppercase">
         <GraduationCap className="size-3.5" />
         Правила ({data.rules.length})
       </div>
