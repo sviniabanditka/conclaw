@@ -113,6 +113,12 @@ import { startSchedulerLoop } from './task-scheduler.js';
 import { Heartbeat } from './heartbeat.js';
 import { applyReminderAction, reminderButtons } from './reminder-actions.js';
 import { ReplyIndex, applyReplyAction, replyButtons } from './reply-actions.js';
+import {
+  applyRuleAction,
+  learnButton,
+  proposalButtons,
+} from './rule-actions.js';
+import { addRule, readRules, rulesFilePath, rulesPromptBlock } from './rules.js';
 import { TokenWatchdog } from './token-watchdog.js';
 import { transcriptionProblems } from './transcription.js';
 import { CalendarRefresher } from './calendar-refresh.js';
@@ -147,6 +153,13 @@ const replyIndex = new ReplyIndex();
  */
 const pendingCreatedTasks = new Map<string, string[]>();
 const repliedTasks = new ReplyIndex();
+
+/**
+ * Chats whose next reply is a proposed rule rather than an answer. It carries
+ * ✅/🗑 instead of the usual buttons — a proposal is not something to be
+ * reminded about or filed as a note.
+ */
+const awaitingProposal = new Set<string>();
 
 /** Weather for the morning rundown; null when coordinates are not configured. */
 const weather =
@@ -493,7 +506,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return true;
   }
 
-  const prompt = formatMessages(forAgent, TIMEZONE);
+  // Rules learned from past mistakes ride in the prompt rather than in
+  // CLAUDE.md: that file is read when a session starts, so a rule added
+  // mid-session would not apply until the next one — exactly when it is least
+  // likely to be remembered and most likely to be needed.
+  const rulesFile = rulesFilePath(resolveGroupFolderPath(group.folder));
+  const prompt =
+    rulesPromptBlock(readRules(rulesFile)) + formatMessages(forAgent, TIMEZONE);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -560,9 +579,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const shown = text.slice(0, TELEGRAM_MAX_LENGTH);
       const created = pendingCreatedTasks.get(chatJid) ?? [];
       pendingCreatedTasks.delete(chatJid);
+      const isProposal = awaitingProposal.delete(chatJid);
       await channel.editMessage(chatJid, id, shown, {
         markdown: true,
-        buttons: replyButtons(created.length > 0),
+        buttons: isProposal
+          ? proposalButtons()
+          : [...replyButtons(created.length > 0), learnButton()],
       });
       replyIndex.remember(chatJid, id, shown);
       recordBotMessage(chatJid, shown, id);
@@ -1025,6 +1047,16 @@ async function main(): Promise<void> {
 
       const group = registeredGroups[chatJid];
       if (group) {
+        const ruleResult = await applyRuleAction(chatJid, messageId, action, {
+          getText: (jid, id) => replyIndex.get(jid, id),
+          sendToAgent: injectUserMessage,
+          awaitProposal: (jid) => awaitingProposal.add(jid),
+          addRule: (text) =>
+            addRule(rulesFilePath(resolveGroupFolderPath(group.folder)), text),
+          editMessage: editText,
+        });
+        if (ruleResult !== null) return ruleResult;
+
         const replyResult = await applyReplyAction(chatJid, messageId, action, {
           groupFolder: group.folder,
           getText: (jid, id) => replyIndex.get(jid, id),

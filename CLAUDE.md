@@ -19,6 +19,7 @@ Single Node.js process with channel system. Channels (WhatsApp, Telegram, Slack,
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
+| `groups/{name}/RULES.md` | Rules learned from mistakes via the 🎓 button; prepended to every prompt. Written only by `src/rules.ts` after the user accepts — never by the agent |
 | `container/skills/` | Skills loaded inside agent containers (browser, status, formatting) |
 | `.claude/skills/*/SKILL.md` | Skill definitions (all shipped on `main`) |
 
