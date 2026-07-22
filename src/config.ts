@@ -19,8 +19,20 @@ const envConfig = readEnvFile([
   'MINIAPP_ALLOWED_USER_IDS',
 ]);
 
+/**
+ * The name written into the `groups/<name>/CLAUDE.md` templates.
+ *
+ * Registration rewrites those files when the configured name differs, so this
+ * constant and the markdown have to agree — it lives here rather than as a
+ * string literal in the two places that do the rewriting, because a rename
+ * that misses one of them produces a persona addressed by two names.
+ */
+export const TEMPLATE_ASSISTANT_NAME = 'ConClaw';
+
 export const ASSISTANT_NAME =
-  process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
+  process.env.ASSISTANT_NAME ||
+  envConfig.ASSISTANT_NAME ||
+  TEMPLATE_ASSISTANT_NAME;
 export const ASSISTANT_HAS_OWN_NUMBER =
   (process.env.ASSISTANT_HAS_OWN_NUMBER ||
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';

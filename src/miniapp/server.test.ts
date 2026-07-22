@@ -88,6 +88,7 @@ const scopes: string[] = [];
 
 beforeAll(async () => {
   const api: ApiDeps = {
+    assistantName: 'ConClaw',
     groupFolder: FOLDER,
     chatJid: CHAT,
     getTasks: () => tasks,
@@ -426,6 +427,12 @@ describe('links', () => {
 });
 
 describe('history', () => {
+  // The app must not hardcode what the assistant is called.
+  it('says who the assistant is, so the app can label its half', async () => {
+    const body = await json(await get('/api/history?q=деплой', initData()));
+    expect(body.assistantName).toBe('ConClaw');
+  });
+
   it('searches both halves of the conversation', async () => {
     const body = await json(await get('/api/history?q=деплой', initData()));
     expect(body.messages).toHaveLength(1);

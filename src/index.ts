@@ -6,6 +6,7 @@ import { OneCLI } from '@onecli-sh/sdk';
 
 import {
   ASSISTANT_NAME,
+  TEMPLATE_ASSISTANT_NAME,
   DEFAULT_TRIGGER,
   getTriggerPattern,
   GROUPS_DIR,
@@ -30,6 +31,7 @@ import {
   TIMEZONE,
 } from './config.js';
 import { readEnvFile } from './env.js';
+import { renameAssistant } from './assistant-name.js';
 import './channels/index.js';
 import {
   ChannelOpts,
@@ -291,9 +293,8 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
     );
     if (fs.existsSync(templateFile)) {
       let content = fs.readFileSync(templateFile, 'utf-8');
-      if (ASSISTANT_NAME !== 'Andy') {
-        content = content.replace(/^# Andy$/m, `# ${ASSISTANT_NAME}`);
-        content = content.replace(/You are Andy/g, `You are ${ASSISTANT_NAME}`);
+      if (ASSISTANT_NAME !== TEMPLATE_ASSISTANT_NAME) {
+        content = renameAssistant(content, ASSISTANT_NAME);
       }
       fs.writeFileSync(groupMdFile, content);
       logger.info({ folder: group.folder }, 'Created CLAUDE.md from template');
@@ -1421,6 +1422,7 @@ async function main(): Promise<void> {
       botToken: readEnvFile(['TELEGRAM_BOT_TOKEN']).TELEGRAM_BOT_TOKEN || '',
       allowedUserIds: parseAllowedUserIds(MINIAPP_ALLOWED_USER_IDS),
       api: {
+        assistantName: ASSISTANT_NAME,
         groupFolder: mainGroupFolder,
         chatJid: mainJid,
         getTasks: getTasksForGroup,

@@ -17,6 +17,8 @@ import type { TurnTrace } from '../turn-trace.js';
 import { NewMessage, ScheduledTask } from '../types.js';
 
 export interface ApiDeps {
+  /** What the assistant is called — the app must not hardcode a name. */
+  assistantName: string;
   /** The group the app speaks for. */
   groupFolder: string;
   /** That group's chat, for history and for sending. */
@@ -230,9 +232,9 @@ export function searchHistory(
   deps: ApiDeps,
   query: string,
   limit = 50,
-): { messages: MessageView[] } {
+): { messages: MessageView[]; assistantName: string } {
   const q = (query || '').trim();
-  if (q.length < 2) return { messages: [] };
+  if (q.length < 2) return { messages: [], assistantName: deps.assistantName };
   const messages = deps
     .searchHistory(deps.chatJid, q, Math.min(limit, 100))
     .map((m) => ({
@@ -240,7 +242,7 @@ export function searchHistory(
       fromBot: Boolean(m.is_bot_message),
       text: String(m.content),
     }));
-  return { messages };
+  return { messages, assistantName: deps.assistantName };
 }
 
 // --- writing back ----------------------------------------------------------

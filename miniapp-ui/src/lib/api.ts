@@ -132,7 +132,10 @@ export const api = {
     post<{ updated: boolean }>('links/update', { id, ...fields }),
   deleteLink: (id: number) => post<{ deleted: boolean }>('links/delete', { id }),
 
-  history: (q: string) => request<{ messages: MessageView[] }>(`history${query({ q })}`),
+  history: (q: string) =>
+    request<{ messages: MessageView[]; assistantName: string }>(
+      `history${query({ q })}`,
+    ),
 
   send: (text: string) => post<{ sent: boolean; reason?: string }>('message', { text }),
 

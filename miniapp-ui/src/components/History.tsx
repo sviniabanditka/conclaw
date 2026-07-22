@@ -14,6 +14,7 @@ const MIN_QUERY = 2;
 export function History({ onError }: { onError: (e: Error) => void }) {
   const [q, setQ] = useState('');
   const [messages, setMessages] = useState<MessageView[] | null>(null);
+  const [assistant, setAssistant] = useState('');
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export function History({ onError }: { onError: (e: Error) => void }) {
       api.history(q).then(
         (d) => {
           setMessages(d.messages);
+          setAssistant(d.assistantName);
           setSearching(false);
         },
         (e) => {
@@ -62,7 +64,7 @@ export function History({ onError }: { onError: (e: Error) => void }) {
         messages.map((m, i) => (
           <Card key={`${m.at}-${i}`}>
             <CardMeta className={cn('mt-0', !m.fromBot && 'text-link')}>
-              {m.fromBot ? 'Andy' : 'Ты'} · {when(m.at)}
+              {m.fromBot ? assistant : 'Ты'} · {when(m.at)}
             </CardMeta>
             <div className="mt-1.5 text-[14px] leading-snug whitespace-pre-wrap">
               {m.text.length > 600 ? `${m.text.slice(0, 600)}…` : m.text}
