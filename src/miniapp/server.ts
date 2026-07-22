@@ -37,6 +37,7 @@ import {
   searchHistory,
   setLinkFields,
   setLinkRead,
+  setTaskPaused,
 } from './api.js';
 
 /** Telegram sends initData in this header; the name is ours, the value is theirs. */
@@ -314,6 +315,13 @@ async function handle(
         return;
       case '/api/tasks/delete':
         send(res, 200, deleteTask(opts.api, String(body.id ?? '')));
+        return;
+      case '/api/tasks/pause':
+        send(
+          res,
+          200,
+          setTaskPaused(opts.api, String(body.id ?? ''), body.paused !== false),
+        );
         return;
       case '/api/notes/save':
         send(res, 200, saveNote(opts.api, String(body.id ?? ''), body));

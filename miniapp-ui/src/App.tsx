@@ -1,10 +1,10 @@
 import { useCallback, useState } from 'react';
-import { AlertTriangle, Bookmark, Brain as BrainIcon, FileText, LayoutGrid, Search } from 'lucide-react';
+import { AlertTriangle, Bookmark, Brain as BrainIcon, CalendarClock, FileText, LayoutGrid } from 'lucide-react';
 
 import { Brain } from '@/components/Brain';
-import { History } from '@/components/History';
 import { Links } from '@/components/Links';
 import { Notes } from '@/components/Notes';
+import { Tasks } from '@/components/Tasks';
 import { Overview } from '@/components/Overview';
 import { BottomNav, type NavItem } from '@/components/ui/nav';
 import { tap } from '@/lib/telegram';
@@ -13,7 +13,7 @@ const TABS: NavItem[] = [
   { value: 'overview', label: 'Overview', icon: LayoutGrid },
   { value: 'notes', label: 'Notes', icon: FileText },
   { value: 'links', label: 'Links', icon: Bookmark },
-  { value: 'history', label: 'Search', icon: Search },
+  { value: 'tasks', label: 'Tasks', icon: CalendarClock },
   { value: 'brain', label: 'Brain', icon: BrainIcon },
 ];
 
@@ -39,8 +39,8 @@ export function App() {
         return <Notes onError={onError} />;
       case 'links':
         return <Links onError={onError} />;
-      case 'history':
-        return <History onError={onError} />;
+      case 'tasks':
+        return <Tasks onError={onError} />;
       case 'brain':
         return <Brain onError={onError} />;
       default:

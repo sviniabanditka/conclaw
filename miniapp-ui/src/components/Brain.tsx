@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardMeta, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { History } from '@/components/History';
 import {
   api,
   type Brain as BrainData,
@@ -176,9 +177,16 @@ export function Brain({ onError }: { onError: (e: Error) => void }) {
 
   return (
     <>
+      {/* The conversation belongs with the rest of what the assistant did and
+          learned, and a sixth item in the bottom bar does not fit a phone. */}
+      <div className="text-muted-foreground px-1 text-[12px] tracking-wide uppercase">
+        Conversation
+      </div>
+      <History onError={onError} />
+
       {data.proposals.length > 0 && (
         <>
-          <div className="text-muted-foreground px-1 text-[12.5px] tracking-wide uppercase">
+          <div className="text-muted-foreground mt-3 px-1 text-[12px] tracking-wide uppercase">
             Awaiting your call
           </div>
           {data.proposals.map((p) => (

@@ -26,6 +26,7 @@ export interface ApiDeps {
   chatJid: string;
   getTasks: (groupFolder: string) => ScheduledTask[];
   deleteTask: (id: string) => void;
+  setTaskStatus: (id: string, status: 'active' | 'paused') => void;
 
   getLinks: (groupFolder: string, query?: LinkQuery) => LinkRow[];
   updateLink: (groupFolder: string, id: number, fields: LinkUpdate) => boolean;
@@ -71,6 +72,8 @@ export interface TaskView {
   title: string;
   nextRun: string | null;
   scheduleType: string;
+  /** The cron expression or the one-off time, as stored. */
+  scheduleValue: string;
   kind: string;
   status: string;
   /** A schedule.md-derived reminder is regenerated, so deleting it is pointless. */
@@ -116,6 +119,7 @@ function toTaskView(task: ScheduledTask): TaskView {
     title: firstLine(task.prompt),
     nextRun: task.next_run ?? null,
     scheduleType: task.schedule_type,
+    scheduleValue: task.schedule_value,
     kind: task.kind ?? 'agent',
     status: task.status ?? 'active',
     derived: DERIVED_PREFIXES.some((p) => task.id.startsWith(p)),
@@ -158,6 +162,26 @@ export function deleteTask(
   if (!exists) return { deleted: false, reason: 'not found' };
   deps.deleteTask(id);
   return { deleted: true };
+}
+
+/**
+ * Pause or resume a task.
+ *
+ * Allowed on the sync-derived ones too, unlike deletion: pausing survives —
+ * the syncs update a task's schedule and text, they do not resurrect its
+ * status — so this is the honest way to silence a reminder you want back
+ * later without editing schedule.md.
+ */
+export function setTaskPaused(
+  deps: ApiDeps,
+  id: string,
+  paused: boolean,
+): { updated: boolean; reason?: string } {
+  if (!id) return { updated: false, reason: 'no id' };
+  const task = deps.getTasks(deps.groupFolder).find((t) => t.id === id);
+  if (!task) return { updated: false, reason: 'not found' };
+  deps.setTaskStatus(id, paused ? 'paused' : 'active');
+  return { updated: true };
 }
 
 // --- links -----------------------------------------------------------------

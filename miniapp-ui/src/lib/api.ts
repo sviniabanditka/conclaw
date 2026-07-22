@@ -5,6 +5,7 @@ export interface TaskView {
   title: string;
   nextRun: string | null;
   scheduleType: string;
+  scheduleValue: string;
   kind: string;
   status: string;
   derived: boolean;
@@ -130,6 +131,8 @@ export const api = {
   tasks: () => request<{ tasks: TaskView[] }>('tasks'),
   deleteTask: (id: string) =>
     post<{ deleted: boolean; reason?: string }>('tasks/delete', { id }),
+  pauseTask: (id: string, paused: boolean) =>
+    post<{ updated: boolean; reason?: string }>('tasks/pause', { id, paused }),
 
   links: (opts: { filter: LinkFilter; tag?: string; q?: string }) =>
     request<{ links: LinkView[]; tags: string[] }>(

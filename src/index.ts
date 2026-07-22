@@ -1453,6 +1453,7 @@ async function main(): Promise<void> {
         chatJid: mainJid,
         getTasks: getTasksForGroup,
         deleteTask,
+        setTaskStatus: (id, status) => updateTask(id, { status }),
         getLinks,
         updateLink,
         deleteLink,

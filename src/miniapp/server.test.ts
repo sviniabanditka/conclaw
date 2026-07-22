@@ -99,6 +99,10 @@ beforeAll(async () => {
       deleted.push(id);
       tasks = tasks.filter((t) => t.id !== id);
     },
+    setTaskStatus: (id, status) => {
+      const task = tasks.find((t) => t.id === id);
+      if (task) task.status = status;
+    },
     getLinks: (folder: string, query: LinkQuery = {}) => {
       scopes.push(folder);
       let rows = links;
@@ -314,6 +318,7 @@ describe('authentication', () => {
     '/api/links/update',
     '/api/links/delete',
     '/api/tasks/delete',
+    '/api/tasks/pause',
     '/api/notes/save',
     '/api/notes/create',
     '/api/notes/delete',
@@ -495,6 +500,29 @@ describe('tasks', () => {
     expect(body.deleted).toBe(false);
     expect(body.reason).toMatch(/schedule\.md/);
     expect(deleted).not.toContain('sched-morning');
+  });
+
+  // Unlike deletion, pausing survives a sync pass: the syncs rewrite a task's
+  // schedule and text, not its status. So it is the honest way to silence a
+  // schedule.md reminder you want back later.
+  it('pauses and resumes, including a derived task', async () => {
+    expect(await json(await post('/api/tasks/pause', { id: 'sched-morning' }))).toEqual({
+      updated: true,
+    });
+    expect(tasks.find((t) => t.id === 'sched-morning')!.status).toBe('paused');
+
+    await post('/api/tasks/pause', { id: 'sched-morning', paused: false });
+    expect(tasks.find((t) => t.id === 'sched-morning')!.status).toBe('active');
+  });
+
+  it('refuses to pause a task that is not there', async () => {
+    const body = await json(await post('/api/tasks/pause', { id: 'nope' }));
+    expect(body).toEqual({ updated: false, reason: 'not found' });
+  });
+
+  it('reports the schedule as stored, so the app can show it', async () => {
+    const body = await json(await get('/api/tasks', initData()));
+    expect(body.tasks[0].scheduleValue).toBeTruthy();
   });
 
   it('deletes an ordinary task', async () => {
