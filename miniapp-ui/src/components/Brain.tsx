@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ChevronDown, GraduationCap, Puzzle, Trash2, Wrench } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import { when } from '@/lib/format';
 import { haptic, tap } from '@/lib/telegram';
+import { useResource } from '@/lib/use-resource';
 
 /**
  * A proposed skill, with its whole text.
@@ -147,13 +148,8 @@ function Turn({ turn }: { turn: TurnTrace }) {
 }
 
 export function Brain({ onError }: { onError: (e: Error) => void }) {
-  const [data, setData] = useState<BrainData | null>(null);
-
-  const load = useCallback(() => {
-    api.brain().then(setData, onError);
-  }, [onError]);
-
-  useEffect(load, [load]);
+  const fetchBrain = useCallback(() => api.brain(), []);
+  const { data, refresh: load } = useResource('brain', fetchBrain, onError);
 
   if (!data) {
     return (

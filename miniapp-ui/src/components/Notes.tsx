@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FileText, Plus, Search, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardMeta } from '@/components/ui/card';
 import { Input, Textarea } from '@/components/ui/input';
-import { Sheet } from '@/components/ui/sheet';
+import { Sheet, SheetAction } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, type NoteView } from '@/lib/api';
 import { when } from '@/lib/format';
 import { haptic, tap } from '@/lib/telegram';
+import { useSheetChrome } from '@/lib/use-sheet-chrome';
+import { useResource } from '@/lib/use-resource';
 
 /** A new note has no id yet; the editor is the same either way. */
 type Editing = NoteView | 'new' | null;
@@ -40,7 +42,6 @@ function Editor({
     setRefused(undefined);
   }, [editing]);
 
-  if (!editing) return null;
   const isNew = editing === 'new';
 
   async function run(
@@ -67,6 +68,21 @@ function Editor({
     }
   }
 
+  const save = () =>
+    run(() =>
+      !editing || editing === 'new'
+        ? api.createNote({ title, body, tags })
+        : api.saveNote(editing.id, { title, body, tags }),
+    );
+
+  useSheetChrome({
+    open: Boolean(editing),
+    onClose,
+    action: { text: 'Save', disabled: busy || !title.trim(), busy, onClick: save },
+  });
+
+  if (!editing) return null;
+
   return (
     <Sheet open onClose={onClose} title={isNew ? 'New note' : 'Edit note'}>
       <div className="flex flex-col gap-2">
@@ -89,19 +105,11 @@ function Editor({
         />
         {refused && <div className="text-destructive px-1 text-[13px]">{refused}</div>}
 
-        <Button
-          size="block"
-          disabled={busy || !title.trim()}
-          onClick={() =>
-            run(() =>
-              isNew
-                ? api.createNote({ title, body, tags })
-                : api.saveNote(editing.id, { title, body, tags }),
-            )
-          }
-        >
-          Save
-        </Button>
+        <SheetAction>
+          <Button size="block" disabled={busy || !title.trim()} onClick={save}>
+            Save
+          </Button>
+        </SheetAction>
         {!isNew && (
           <Button
             variant="destructive"
@@ -125,21 +133,10 @@ function Editor({
 export function Notes({ onError }: { onError: (e: Error) => void }) {
   const [q, setQ] = useState('');
   const [tag, setTag] = useState<string>();
-  const [data, setData] = useState<{ notes: NoteView[]; tags: string[] } | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
-  const loaded = useRef(false);
 
-  const load = useCallback(() => {
-    api.notes({ q, tag }).then((d) => {
-      loaded.current = true;
-      setData(d);
-    }, onError);
-  }, [q, tag, onError]);
-
-  useEffect(() => {
-    const id = setTimeout(load, loaded.current ? 200 : 0);
-    return () => clearTimeout(id);
-  }, [load]);
+  const load = useCallback(() => api.notes({ q, tag }), [q, tag]);
+  const { data, refresh } = useResource(`notes:${tag ?? ''}:${q}`, load, onError);
 
   return (
     <>
@@ -228,7 +225,7 @@ export function Notes({ onError }: { onError: (e: Error) => void }) {
       <Editor
         editing={editing}
         onClose={() => setEditing(null)}
-        onSaved={load}
+        onSaved={refresh}
         onError={onError}
       />
     </>

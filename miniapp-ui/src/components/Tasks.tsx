@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Bot, Bell, Pause, Play, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +9,7 @@ import { api, type TaskView } from '@/lib/api';
 import { when } from '@/lib/format';
 import { describeSchedule } from '@/lib/schedule';
 import { haptic, tap } from '@/lib/telegram';
+import { useResource } from '@/lib/use-resource';
 import { cn } from '@/lib/utils';
 
 type Filter = 'active' | 'paused' | 'all';
@@ -95,13 +96,9 @@ function TaskCard({
 
 export function Tasks({ onError }: { onError: (e: Error) => void }) {
   const [filter, setFilter] = useState<Filter>('active');
-  const [tasks, setTasks] = useState<TaskView[] | null>(null);
-
-  const load = useCallback(() => {
-    api.tasks().then((d) => setTasks(d.tasks), onError);
-  }, [onError]);
-
-  useEffect(load, [load]);
+  const load = useCallback(() => api.tasks(), []);
+  const { data, refresh } = useResource('tasks', load, onError);
+  const tasks = data?.tasks;
 
   if (!tasks) {
     return (
@@ -147,7 +144,7 @@ export function Tasks({ onError }: { onError: (e: Error) => void }) {
         </div>
       ) : (
         shown.map((task) => (
-          <TaskCard key={task.id} task={task} onChanged={load} onError={onError} />
+          <TaskCard key={task.id} task={task} onChanged={refresh} onError={onError} />
         ))
       )}
     </>

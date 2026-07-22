@@ -10,6 +10,21 @@ interface HapticFeedback {
   impactOccurred(style: 'light' | 'medium' | 'heavy'): void;
 }
 
+interface TelegramButton {
+  show(): void;
+  hide(): void;
+  onClick(cb: () => void): void;
+  offClick(cb: () => void): void;
+}
+
+interface MainButton extends TelegramButton {
+  setText(text: string): void;
+  enable(): void;
+  disable(): void;
+  showProgress(leaveActive?: boolean): void;
+  hideProgress(): void;
+}
+
 interface TelegramWebApp {
   initData: string;
   ready(): void;
@@ -17,6 +32,8 @@ interface TelegramWebApp {
   disableVerticalSwipes?(): void;
   setHeaderColor?(color: string): void;
   HapticFeedback?: HapticFeedback;
+  BackButton?: TelegramButton;
+  MainButton?: MainButton;
 }
 
 const tg: TelegramWebApp | undefined = (
@@ -45,4 +62,24 @@ export function haptic(kind: 'success' | 'error'): void {
 
 export function tap(): void {
   tg?.HapticFeedback?.impactOccurred('light');
+}
+
+/**
+ * Telegram's own back button and primary action.
+ *
+ * Null outside Telegram, which is the whole reason they are reached through
+ * here: a sheet has to work in a plain browser too, so every caller has to
+ * cope with their absence rather than assuming the chrome exists.
+ */
+export function backButton(): TelegramButton | null {
+  return tg?.BackButton ?? null;
+}
+
+export function mainButton(): MainButton | null {
+  return tg?.MainButton ?? null;
+}
+
+/** Whether the platform supplies chrome, so the page can stop drawing its own. */
+export function hasNativeChrome(): boolean {
+  return Boolean(tg?.MainButton && tg?.BackButton);
 }

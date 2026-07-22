@@ -1,6 +1,17 @@
 import { useEffect } from 'react';
 
 import { cn } from '@/lib/utils';
+import { hasNativeChrome } from '@/lib/telegram';
+
+/**
+ * The sheet's primary action, drawn in the page only where Telegram has no
+ * button of its own — in the app it lives at the bottom of the screen, and two
+ * Saves is worse than either.
+ */
+export function SheetAction({ children }: { children: React.ReactNode }) {
+  if (hasNativeChrome()) return null;
+  return <>{children}</>;
+}
 
 /**
  * A bottom sheet.

@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Check, Globe, Plus, Search, Settings2, Trash2, Undo2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardMeta } from '@/components/ui/card';
 import { Input, Textarea } from '@/components/ui/input';
-import { Sheet } from '@/components/ui/sheet';
+import { Sheet, SheetAction } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, type LinkFilter, type LinkView } from '@/lib/api';
 import { hostOf, when } from '@/lib/format';
 import { haptic, tap } from '@/lib/telegram';
+import { useSheetChrome } from '@/lib/use-sheet-chrome';
+import { useResource } from '@/lib/use-resource';
 
 const FILTERS: { value: LinkFilter; label: string }[] = [
   { value: 'unread', label: 'Unread' },
@@ -147,8 +149,6 @@ function EditSheet({
     setNote(link.note ?? '');
   }, [link]);
 
-  if (!link) return null;
-
   async function run(action: () => Promise<{ updated?: boolean; deleted?: boolean }>) {
     setBusy(true);
     try {
@@ -166,6 +166,20 @@ function EditSheet({
       onError(e as Error);
     }
   }
+
+  useSheetChrome({
+    open: Boolean(link),
+    onClose,
+    action: {
+      text: 'Save',
+      disabled: busy,
+      busy,
+      onClick: () =>
+        link && run(() => api.updateLink(link.id, { title, tags, note })),
+    },
+  });
+
+  if (!link) return null;
 
   return (
     <Sheet open onClose={onClose} title="Edit link">
@@ -190,13 +204,15 @@ function EditSheet({
           {link.url}
         </div>
 
-        <Button
-          size="block"
-          disabled={busy}
-          onClick={() => run(() => api.updateLink(link.id, { title, tags, note }))}
-        >
-          Save
-        </Button>
+        <SheetAction>
+          <Button
+            size="block"
+            disabled={busy}
+            onClick={() => run(() => api.updateLink(link.id, { title, tags, note }))}
+          >
+            Save
+          </Button>
+        </SheetAction>
         <Button
           variant="destructive"
           size="block"
@@ -226,8 +242,6 @@ function AddSheet({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string>();
 
-  if (!open) return null;
-
   async function save() {
     setBusy(true);
     setNote(undefined);
@@ -253,6 +267,14 @@ function AddSheet({
     }
   }
 
+  useSheetChrome({
+    open,
+    onClose,
+    action: { text: 'Save', disabled: busy || !url.trim(), busy, onClick: save },
+  });
+
+  if (!open) return null;
+
   return (
     <Sheet open onClose={onClose} title="Add link">
       <div className="flex flex-col gap-2">
@@ -264,9 +286,11 @@ function AddSheet({
           autoFocus
         />
         {note && <div className="text-muted-foreground px-1 text-[13px]">{note}</div>}
-        <Button size="block" disabled={busy || !url.trim()} onClick={save}>
-          Save
-        </Button>
+        <SheetAction>
+          <Button size="block" disabled={busy || !url.trim()} onClick={save}>
+            Save
+          </Button>
+        </SheetAction>
         <p className="text-muted-foreground px-1 text-[12px]">
           The title and icon are fetched in the background, the same as for a
           link sent to the chat.
@@ -280,31 +304,24 @@ export function Links({ onError }: { onError: (e: Error) => void }) {
   const [filter, setFilter] = useState<LinkFilter>('all');
   const [tag, setTag] = useState<string>();
   const [q, setQ] = useState('');
-  const [data, setData] = useState<{ links: LinkView[]; tags: string[] } | null>(null);
   const [editing, setEditing] = useState<LinkView | null>(null);
   const [adding, setAdding] = useState(false);
-  const loaded = useRef(false);
 
-  const load = useCallback(() => {
-    api.links({ filter, tag, q }).then((d) => {
-      loaded.current = true;
-      setData(d);
-    }, onError);
-  }, [filter, tag, q, onError]);
+  const load = useCallback(() => api.links({ filter, tag, q }), [filter, tag, q]);
+  const { data, refresh } = useResource(
+    `links:${filter}:${tag ?? ''}:${q}`,
+    load,
+    onError,
+  );
 
-  useEffect(() => {
-    const id = setTimeout(load, loaded.current ? 200 : 0);
-    return () => clearTimeout(id);
-  }, [load]);
-
-  // The icon arrives from a background fetch a few seconds after the link, so
-  // a list opened right after saving one would otherwise show a blank row
-  // until something else caused a reload.
+  // The icon is fetched on the host a few seconds after the link is saved, so
+  // a list opened right after adding one shows a blank square until something
+  // causes a reload. One delayed refresh while any are still missing.
   useEffect(() => {
     if (!data?.links.some((l) => !l.icon)) return;
-    const id = setTimeout(load, 5000);
+    const id = setTimeout(refresh, 5000);
     return () => clearTimeout(id);
-  }, [data, load]);
+  }, [data, refresh]);
 
   return (
     <>
@@ -381,7 +398,7 @@ export function Links({ onError }: { onError: (e: Error) => void }) {
             key={link.id}
             link={link}
             onEdit={() => setEditing(link)}
-            onChanged={load}
+            onChanged={refresh}
             onError={onError}
           />
         ))
@@ -390,14 +407,14 @@ export function Links({ onError }: { onError: (e: Error) => void }) {
       <AddSheet
         open={adding}
         onClose={() => setAdding(false)}
-        onSaved={load}
+        onSaved={refresh}
         onError={onError}
       />
 
       <EditSheet
         link={editing}
         onClose={() => setEditing(null)}
-        onSaved={load}
+        onSaved={refresh}
         onError={onError}
       />
     </>
