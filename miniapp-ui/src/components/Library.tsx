@@ -20,8 +20,11 @@ export function Library({ onError }: { onError: (e: Error) => void }) {
   const [counts, setCounts] = useState<{ notes?: number; links?: number }>({});
 
   useEffect(() => {
+    // Both counts are totals. Showing unread for one and a total for the other
+    // made the number mean two different things depending on which half you
+    // were looking at — and "Unread" read as the name of the tab.
     api.overview().then(
-      (o) => setCounts((c) => ({ ...c, links: o.unreadLinkCount })),
+      (o) => setCounts((c) => ({ ...c, links: o.linkCount })),
       () => {},
     );
     api.notes().then(
@@ -40,7 +43,7 @@ export function Library({ onError }: { onError: (e: Error) => void }) {
         }}
         items={[
           { value: 'notes', label: 'Notes', count: counts.notes },
-          { value: 'links', label: 'Unread', count: counts.links },
+          { value: 'links', label: 'Links', count: counts.links },
         ]}
       />
       {view === 'notes' ? <Notes onError={onError} /> : <Links onError={onError} />}

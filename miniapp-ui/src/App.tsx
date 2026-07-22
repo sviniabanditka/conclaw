@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react';
-import { AlertTriangle, Brain as BrainIcon, CalendarClock, LayoutGrid, Library as LibraryIcon } from 'lucide-react';
+import { AlertTriangle, Brain as BrainIcon, CalendarClock, LayoutGrid, Library as LibraryIcon, Search } from 'lucide-react';
 
 import { Brain } from '@/components/Brain';
+import { History } from '@/components/History';
 import { Library } from '@/components/Library';
 import { Tasks } from '@/components/Tasks';
 import { Overview } from '@/components/Overview';
@@ -12,6 +13,7 @@ const TABS: NavItem[] = [
   { value: 'overview', label: 'Overview', icon: LayoutGrid },
   { value: 'library', label: 'Library', icon: LibraryIcon },
   { value: 'tasks', label: 'Tasks', icon: CalendarClock },
+  { value: 'history', label: 'Search', icon: Search },
   { value: 'brain', label: 'Brain', icon: BrainIcon },
 ];
 
@@ -37,6 +39,8 @@ export function App() {
         return <Library onError={onError} />;
       case 'tasks':
         return <Tasks onError={onError} />;
+      case 'history':
+        return <History onError={onError} />;
       case 'brain':
         return <Brain onError={onError} />;
       default:
