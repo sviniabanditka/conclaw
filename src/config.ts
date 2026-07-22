@@ -14,6 +14,7 @@ const envConfig = readEnvFile([
   'HEARTBEAT_INTERVAL_MS',
   'WEATHER_LATITUDE',
   'WEATHER_LONGITUDE',
+  'CALENDAR_REFRESH_INTERVAL_MS',
   'MINIAPP_PORT',
   'MINIAPP_ALLOWED_USER_IDS',
 ]);
@@ -57,6 +58,20 @@ export const WEATHER_LATITUDE =
   process.env.WEATHER_LATITUDE || envConfig.WEATHER_LATITUDE || '';
 export const WEATHER_LONGITUDE =
   process.env.WEATHER_LONGITUDE || envConfig.WEATHER_LONGITUDE || '';
+
+/**
+ * How often the Google Calendar cache is refetched.
+ *
+ * One HTTPS request through the OneCLI gateway, from the host — cheap enough
+ * to run often, and how often decides how quickly a meeting created shortly
+ * before it starts is noticed at all.
+ */
+export const CALENDAR_REFRESH_INTERVAL_MS = parseInt(
+  process.env.CALENDAR_REFRESH_INTERVAL_MS ||
+    envConfig.CALENDAR_REFRESH_INTERVAL_MS ||
+    '300000',
+  10,
+);
 
 /**
  * Telegram Mini App.

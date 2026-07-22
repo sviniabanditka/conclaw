@@ -11,6 +11,8 @@ import {
   GROUPS_DIR,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_URL,
+  CALENDAR_REFRESH_INTERVAL_MS,
+  DATA_DIR,
   MINIAPP_PORT,
   MINIAPP_ALLOWED_USER_IDS,
   IDLE_TIMEOUT,
@@ -113,6 +115,7 @@ import { applyReminderAction, reminderButtons } from './reminder-actions.js';
 import { ReplyIndex, applyReplyAction, replyButtons } from './reply-actions.js';
 import { TokenWatchdog } from './token-watchdog.js';
 import { transcriptionProblems } from './transcription.js';
+import { CalendarRefresher } from './calendar-refresh.js';
 import { startMiniAppServer } from './miniapp/server.js';
 import { parseAllowedUserIds } from './miniapp/auth.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -1215,6 +1218,23 @@ async function main(): Promise<void> {
       await channel?.sendMessage(mainJid, message);
     },
   }).start();
+
+  // Refetch the calendar from the host rather than from a container. The
+  // gateway authenticates the request either way; a container start bought
+  // nothing over one HTTPS call.
+  for (const group of Object.values(registeredGroups)) {
+    if (!group.isMain) continue;
+    new CalendarRefresher({
+      scriptPath: path.join(SCRIPTS_DIR, 'refresh-calendar-cache.sh'),
+      outputPath: path.join(
+        resolveGroupFolderPath(group.folder),
+        'calendar_events.json',
+      ),
+      tmpDir: path.join(DATA_DIR, 'tmp'),
+      getGatewayConfig: () => onecli.getContainerConfig(),
+      intervalMs: CALENDAR_REFRESH_INTERVAL_MS,
+    }).start();
+  }
 
   // Say up front if voice notes cannot be transcribed. The symptom otherwise
   // is the agent receiving a bare `[Voice message]` hours later and guessing

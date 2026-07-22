@@ -1,18 +1,22 @@
 #!/bin/bash
-# Refresh the Google Calendar cache from inside an agent container.
+# Refresh the Google Calendar cache.
 #
-# Runs as a scheduled task's `script`, and deliberately never wakes the agent:
-# fetching a list of events needs no reasoning. The OneCLI gateway injects the
-# OAuth token into outbound HTTPS, so a plain curl is authenticated without the
-# container ever holding a credential — the same path the calendar MCP server
-# takes, minus the model call.
+# Fetching a list of events needs no reasoning, so this never wakes the agent.
+# The OneCLI gateway injects the OAuth token into outbound HTTPS, so a plain
+# curl is authenticated without holding a credential — the same path the
+# calendar MCP server takes, minus the model call.
+#
+# Runs on the host, driven by the orchestrator: a container spawn per refresh
+# bought nothing over one HTTPS request. It still works as a scheduled task's
+# `script` inside a container, which is why the output path has a container
+# default and an override.
 #
 # Cheap enough to run often, which is the point: the cache is what reminders are
 # derived from, so a meeting created shortly before it starts is only ever
 # noticed as fast as this runs.
 set -uo pipefail
 
-OUT=/workspace/group/calendar_events.json
+OUT=${CALENDAR_CACHE_OUT:-/workspace/group/calendar_events.json}
 TMP=$(mktemp)
 RAW=$(mktemp)
 trap 'rm -f "$TMP" "$RAW"' EXIT
