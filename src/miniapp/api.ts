@@ -29,6 +29,7 @@ export interface ApiDeps {
   setTaskStatus: (id: string, status: 'active' | 'paused') => void;
 
   getLinks: (groupFolder: string, query?: LinkQuery) => LinkRow[];
+  addLink: (groupFolder: string, url: string) => void;
   updateLink: (groupFolder: string, id: number, fields: LinkUpdate) => boolean;
   deleteLink: (groupFolder: string, id: number) => boolean;
   countLinks: (groupFolder: string, read?: boolean) => number;
@@ -204,7 +205,11 @@ function toLinkView(row: LinkRow): LinkView {
 export interface LinkListQuery {
   q?: string;
   tag?: string;
-  /** 'unread' is the default: the archive exists to be worked through. */
+  /**
+   * 'all' is the default. Opening on unread made the archive look empty once
+   * it was worked through, which is the opposite of what an archive is for —
+   * unread is a filter you reach for, not the only view.
+   */
   filter?: 'unread' | 'read' | 'all';
 }
 
@@ -212,7 +217,7 @@ export function listLinks(
   deps: ApiDeps,
   query: LinkListQuery = {},
 ): { links: LinkView[]; tags: string[] } {
-  const filter = query.filter ?? 'unread';
+  const filter = query.filter ?? 'all';
   const links = deps
     .getLinks(deps.groupFolder, {
       q: query.q,
@@ -258,6 +263,42 @@ export function setLinkFields(
   }
   if (Object.keys(update).length === 0) return { updated: false };
   return { updated: deps.updateLink(deps.groupFolder, id, update) };
+}
+
+export interface AddLinkResult {
+  added: boolean;
+  existed?: boolean;
+  reason?: string;
+}
+
+/**
+ * Save a link from the app.
+ *
+ * Re-adding one already in the archive is not an error — the store treats it
+ * as resurfacing, which is the useful behaviour — but the app says so, because
+ * silently doing nothing visible looks like the button failed.
+ */
+export function addLink(deps: ApiDeps, url: string): AddLinkResult {
+  const trimmed = (url || '').trim();
+  if (!trimmed) return { added: false, reason: 'no url' };
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { added: false, reason: 'not a valid URL' };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { added: false, reason: 'only http and https' };
+  }
+
+  // Stored as given, not as `parsed.toString()`: that normalisation appends a
+  // trailing slash to a bare host, and the capture path saves whatever was
+  // pasted in the chat. Two spellings of one link would become two rows,
+  // because the unique index is on the text.
+  const existed = deps.getLinks(deps.groupFolder).some((l) => l.url === trimmed);
+  deps.addLink(deps.groupFolder, trimmed);
+  return { added: true, existed };
 }
 
 export function removeLink(deps: ApiDeps, id: number): { deleted: boolean } {

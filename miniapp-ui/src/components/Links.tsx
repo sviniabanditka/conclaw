@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Globe, Search, Settings2, Trash2, Undo2 } from 'lucide-react';
+import { Check, Globe, Plus, Search, Settings2, Trash2, Undo2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -211,12 +211,78 @@ function EditSheet({
   );
 }
 
+function AddSheet({
+  open,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  onError: (e: Error) => void;
+}) {
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string>();
+
+  if (!open) return null;
+
+  async function save() {
+    setBusy(true);
+    setNote(undefined);
+    try {
+      const res = await api.addLink(url);
+      if (!res.added) {
+        haptic('error');
+        setNote(res.reason ?? 'not saved');
+        setBusy(false);
+        return;
+      }
+      haptic('success');
+      // Re-adding is how the store resurfaces a link, and saying nothing would
+      // read as the button having failed.
+      if (res.existed) setNote('Already saved — brought back to the top');
+      setUrl('');
+      onSaved();
+      if (!res.existed) onClose();
+      else setBusy(false);
+    } catch (e) {
+      setBusy(false);
+      onError(e as Error);
+    }
+  }
+
+  return (
+    <Sheet open onClose={onClose} title="Add link">
+      <div className="flex flex-col gap-2">
+        <Input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://…"
+          inputMode="url"
+          autoFocus
+        />
+        {note && <div className="text-muted-foreground px-1 text-[13px]">{note}</div>}
+        <Button size="block" disabled={busy || !url.trim()} onClick={save}>
+          Save
+        </Button>
+        <p className="text-muted-foreground px-1 text-[12px]">
+          The title and icon are fetched in the background, the same as for a
+          link sent to the chat.
+        </p>
+      </div>
+    </Sheet>
+  );
+}
+
 export function Links({ onError }: { onError: (e: Error) => void }) {
-  const [filter, setFilter] = useState<LinkFilter>('unread');
+  const [filter, setFilter] = useState<LinkFilter>('all');
   const [tag, setTag] = useState<string>();
   const [q, setQ] = useState('');
   const [data, setData] = useState<{ links: LinkView[]; tags: string[] } | null>(null);
   const [editing, setEditing] = useState<LinkView | null>(null);
+  const [adding, setAdding] = useState(false);
   const loaded = useRef(false);
 
   const load = useCallback(() => {
@@ -242,14 +308,27 @@ export function Links({ onError }: { onError: (e: Error) => void }) {
 
   return (
     <>
-      <div className="relative">
-        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search links"
-          className="pl-9"
-        />
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search links"
+            className="pl-9"
+          />
+        </div>
+        <Button
+          size="icon"
+          className="size-11 shrink-0"
+          title="Add link"
+          onClick={() => {
+            tap();
+            setAdding(true);
+          }}
+        >
+          <Plus className="size-5" />
+        </Button>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
@@ -307,6 +386,13 @@ export function Links({ onError }: { onError: (e: Error) => void }) {
           />
         ))
       )}
+
+      <AddSheet
+        open={adding}
+        onClose={() => setAdding(false)}
+        onSaved={load}
+        onError={onError}
+      />
 
       <EditSheet
         link={editing}

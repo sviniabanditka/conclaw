@@ -138,6 +138,10 @@ export const api = {
     request<{ links: LinkView[]; tags: string[] }>(
       `links${query({ filter: opts.filter, tag: opts.tag, q: opts.q })}`,
     ),
+  addLink: (url: string) =>
+    post<{ added: boolean; existed?: boolean; reason?: string }>('links/create', {
+      url,
+    }),
   setLinkRead: (id: number, read: boolean) =>
     post<{ updated: boolean }>('links/read', { id, read }),
   updateLink: (id: number, fields: { tags?: string; note?: string; title?: string }) =>

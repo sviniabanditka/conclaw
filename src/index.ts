@@ -1455,6 +1455,7 @@ async function main(): Promise<void> {
         deleteTask,
         setTaskStatus: (id, status) => updateTask(id, { status }),
         getLinks,
+        addLink,
         updateLink,
         deleteLink,
         countLinks,

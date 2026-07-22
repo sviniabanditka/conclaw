@@ -111,6 +111,12 @@ beforeAll(async () => {
       }
       return rows;
     },
+    addLink: (folder: string, url: string) => {
+      scopes.push(folder);
+      if (!links.some((l) => l.url === url)) {
+        links.push(link({ id: links.length + 1, url }));
+      }
+    },
     updateLink: (folder: string, id: number, fields: LinkUpdate) => {
       scopes.push(folder);
       const row = links.find((l) => l.id === id);
@@ -314,6 +320,7 @@ describe('authentication', () => {
     '/api/notes',
   ];
   const writes = [
+    '/api/links/create',
     '/api/links/read',
     '/api/links/update',
     '/api/links/delete',
@@ -388,9 +395,10 @@ describe('overview', () => {
 });
 
 describe('links', () => {
-  it('shows unread by default — the archive exists to be worked through', async () => {
+  // Opening on unread made the archive look empty once it was worked through.
+  it('shows everything by default', async () => {
     const body = await json(await get('/api/links', initData()));
-    expect(body.links.map((l: { id: number }) => l.id)).toEqual([1]);
+    expect(body.links.map((l: { id: number }) => l.id)).toEqual([1, 2]);
   });
 
   it('can show read and all', async () => {
@@ -402,7 +410,28 @@ describe('links', () => {
 
   it('falls back to the default for a filter it does not recognise', async () => {
     const body = await json(await get('/api/links?filter=nonsense', initData()));
-    expect(body.links.map((l: { id: number }) => l.id)).toEqual([1]);
+    expect(body.links).toHaveLength(2);
+  });
+
+  it('adds a link', async () => {
+    const res = await json(await post('/api/links/create', { url: 'https://new.com/x' }));
+    expect(res).toEqual({ added: true, existed: false });
+    expect(links.some((l) => l.url === 'https://new.com/x')).toBe(true);
+  });
+
+  // Re-adding is how the store resurfaces something; saying nothing would
+  // look like the button failed.
+  it('says when the link was already saved', async () => {
+    const res = await json(await post('/api/links/create', { url: 'https://a.com' }));
+    expect(res).toEqual({ added: true, existed: true });
+  });
+
+  it('refuses anything that is not an http(s) URL', async () => {
+    for (const url of ['', 'not a url', 'javascript:alert(1)', 'file:///etc/passwd']) {
+      const res = await json(await post('/api/links/create', { url }));
+      expect(res.added, url).toBe(false);
+    }
+    expect(links).toHaveLength(2);
   });
 
   // Otherwise the tag list empties as soon as a tag is picked, with no way back.

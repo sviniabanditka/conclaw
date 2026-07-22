@@ -20,6 +20,7 @@ import { logger } from '../logger.js';
 import { verifyInitData } from './auth.js';
 import {
   ApiDeps,
+  addLink,
   brain,
   createNote,
   days,
@@ -300,6 +301,9 @@ async function handle(
       return;
     }
     switch (route) {
+      case '/api/links/create':
+        send(res, 200, addLink(opts.api, String(body.url ?? '')));
+        return;
       case '/api/links/read':
         send(
           res,
