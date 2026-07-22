@@ -36,12 +36,20 @@ When working as a sub-agent or teammate, only use `send_message` if instructed t
 
 ## Memory
 
-The `conversations/` folder contains searchable history of past conversations. Use this to recall context from previous sessions.
+There is more than one memory here, and they are not interchangeable:
 
-When you learn something important:
-- Create files for structured data (e.g., `customers.md`, `preferences.md`)
-- Split files larger than 500 lines into folders
-- Keep an index in your memory for the files you create
+- **Notes** — what the user *chose* to record, as markdown in the Obsidian vault.
+  Load the `notes` skill whenever they ask to write something down, ask what is
+  written down, or ask to change it. This is the only memory they can read and
+  edit themselves, so anything meant for them belongs there and nowhere else.
+- **Conversation history** — what was literally said, in SQLite. The `history`
+  skill searches it. Never answer "when did we discuss X" from recollection.
+- **This folder** — your own working files. Keep them for your scaffolding, not
+  for things the user would want to find: a markdown file here is invisible to
+  them.
+
+When you learn something important about the user, write a note. When you learn
+something about how to do your job, this folder is the right place.
 
 ## Message Formatting
 
