@@ -295,6 +295,14 @@ The task will run in that group's context with access to their files and memory.
 
 For any recurring task, use `schedule_task`. Frequent agent invocations — especially multiple times a day — consume API credits and can risk account restrictions. If a simple check can determine whether action is needed, add a `script` — it runs first, and the agent is only called when the check passes. This keeps invocations to a minimum.
 
+**A task prompt says what to do, and names the skill that says how.** It must
+not restate the skill's steps, file paths or your own name: the prompt is
+stored in the database and frozen at the moment it was written, while the skill
+keeps changing. A digest task here spent a week silently doing nothing because
+its prompt still read a file the links archive had moved out of, and still
+addressed the assistant by its previous name. `Пришло время X. Следуй скиллу Y.`
+is the whole prompt.
+
 ### How it works
 
 1. You provide a bash `script` alongside the `prompt` when scheduling
