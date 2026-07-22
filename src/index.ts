@@ -119,6 +119,17 @@ import {
   proposalButtons,
 } from './rule-actions.js';
 import { addRule, readRules, rulesFilePath, rulesPromptBlock } from './rules.js';
+import {
+  announcement,
+  applySkillAction,
+  skillButtons,
+} from './skill-actions.js';
+import {
+  listProposals,
+  markAnnounced,
+  promoteProposal,
+  rejectProposal,
+} from './skill-proposals.js';
 import { TokenWatchdog } from './token-watchdog.js';
 import { transcriptionProblems } from './transcription.js';
 import { CalendarRefresher } from './calendar-refresh.js';
@@ -1047,6 +1058,20 @@ async function main(): Promise<void> {
 
       const group = registeredGroups[chatJid];
       if (group) {
+        const skillsDir = path.join(process.cwd(), 'container', 'skills');
+        const skillResult = await applySkillAction(chatJid, messageId, action, {
+          promote: (name) =>
+            promoteProposal(
+              resolveGroupFolderPath(group.folder),
+              skillsDir,
+              name,
+            ),
+          reject: (name) =>
+            rejectProposal(resolveGroupFolderPath(group.folder), name),
+          editMessage: editText,
+        });
+        if (skillResult !== null) return skillResult;
+
         const ruleResult = await applyRuleAction(chatJid, messageId, action, {
           getText: (jid, id) => replyIndex.get(jid, id),
           sendToAgent: injectUserMessage,
@@ -1213,8 +1238,54 @@ async function main(): Promise<void> {
       }
     }
   };
+  /**
+   * Announce skills the assistant wrote for itself.
+   *
+   * Polled rather than tied to a reply: a skill may be proposed during
+   * overnight work, when there is no reply to hang buttons on, and the
+   * announcement has to survive a restart either way.
+   */
+  const announceSkillProposals = async () => {
+    const skillsDir = path.join(process.cwd(), 'container', 'skills');
+    for (const [jid, group] of Object.entries(registeredGroups)) {
+      let groupDir: string;
+      try {
+        groupDir = resolveGroupFolderPath(group.folder);
+      } catch {
+        continue;
+      }
+      for (const proposal of listProposals(groupDir, skillsDir)) {
+        if (proposal.announced) continue;
+        const channel = findChannel(channels, jid);
+        if (!channel?.sendMessageWithButtons) continue;
+        const text = announcement(
+          proposal.name,
+          proposal.description,
+          proposal.replaces,
+        );
+        const id = await channel.sendMessageWithButtons(
+          jid,
+          text,
+          skillButtons(proposal.name),
+        );
+        // Marked only once it is actually out, so a send that failed is
+        // retried on the next pass rather than lost.
+        if (id) {
+          markAnnounced(proposal);
+          recordBotMessage(jid, text, id);
+          logger.info({ skill: proposal.name }, 'Skill proposal announced');
+        }
+      }
+    }
+  };
+
   syncSchedules();
   setInterval(syncSchedules, SCHEDULE_SYNC_INTERVAL).unref?.();
+  setInterval(() => {
+    void announceSkillProposals().catch((err) =>
+      logger.debug({ err }, 'Skill proposal announcement failed'),
+    );
+  }, SCHEDULE_SYNC_INTERVAL).unref?.();
 
   // Dead-man's switch. Everything else that watches this bot runs inside the
   // pod and dies with it; only an outside observer can tell that apart from a
