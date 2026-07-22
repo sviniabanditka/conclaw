@@ -61,6 +61,8 @@ function link(over: Partial<LinkRow> = {}): LinkRow {
     group_folder: FOLDER,
     url: 'https://a.com',
     title: null,
+    icon: null,
+    enriched_at: null,
     description: null,
     domain: 'a.com',
     tags: null,

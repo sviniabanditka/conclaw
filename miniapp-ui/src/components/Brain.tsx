@@ -59,7 +59,7 @@ function Proposal({
           <CardMeta>{proposal.description}</CardMeta>
           {proposal.replaces && (
             <CardMeta className="text-destructive">
-              заменит существующий скилл целиком
+              replaces the existing skill entirely
             </CardMeta>
           )}
         </div>
@@ -77,7 +77,7 @@ function Proposal({
         <ChevronDown
           className={`size-4 transition-transform ${open ? 'rotate-180' : ''}`}
         />
-        {open ? 'Свернуть' : 'Читать целиком'}
+        {open ? 'Collapse' : 'Read in full'}
       </Button>
 
       {open && (
@@ -92,14 +92,14 @@ function Proposal({
           disabled={busy}
           onClick={() => act(() => api.installSkill(proposal.name))}
         >
-          Установить
+          Install
         </Button>
         <Button
           variant="ghost"
           size="icon"
           className="text-destructive"
           disabled={busy}
-          title="Отклонить"
+          title="Discard"
           onClick={() => act(() => api.discardSkill(proposal.name))}
         >
           <Trash2 className="size-4" />
@@ -119,13 +119,13 @@ function Turn({ turn }: { turn: TurnTrace }) {
   return (
     <Card>
       <CardMeta className="mt-0">
-        {when(turn.startedAt)} · {(turn.durationMs / 1000).toFixed(1)} с ·{' '}
-        {turn.rules} прав.
+        {when(turn.startedAt)} · {(turn.durationMs / 1000).toFixed(1)}s ·{' '}
+        {turn.rules} rules
       </CardMeta>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {turn.skills.length === 0 ? (
           <span className="text-muted-foreground text-[13px]">
-            скиллы не загружались
+            no skills loaded
           </span>
         ) : (
           turn.skills.map((s) => <Badge key={s}>{s}</Badge>)
@@ -179,7 +179,7 @@ export function Brain({ onError }: { onError: (e: Error) => void }) {
       {data.proposals.length > 0 && (
         <>
           <div className="text-muted-foreground px-1 text-[12.5px] tracking-wide uppercase">
-            Ждут решения
+            Awaiting your call
           </div>
           {data.proposals.map((p) => (
             <Proposal key={p.name} proposal={p} onChanged={load} onError={onError} />
@@ -190,7 +190,7 @@ export function Brain({ onError }: { onError: (e: Error) => void }) {
       {data.turns.length > 0 && (
         <>
           <div className="text-muted-foreground mt-2 px-1 text-[12.5px] tracking-wide uppercase">
-            Последние ответы
+            Recent answers
           </div>
           {data.turns.map((t) => (
             <Turn key={t.startedAt} turn={t} />
@@ -200,13 +200,13 @@ export function Brain({ onError }: { onError: (e: Error) => void }) {
 
       <div className="text-muted-foreground mt-3 flex items-center gap-1.5 px-1 text-[12.5px] tracking-wide uppercase">
         <GraduationCap className="size-3.5" />
-        Правила ({data.rules.length})
+        Rules ({data.rules.length})
       </div>
       {data.rules.length === 0 ? (
         <div className="text-muted-foreground py-6 text-center text-[14px]">
-          Пока ничему не научился.
+          Nothing learned yet.
           <br />
-          Ткни 🎓 под неудачным ответом.
+          Tap 🎓 under an answer that went wrong.
         </div>
       ) : (
         data.rules.map((rule) => (
@@ -214,13 +214,13 @@ export function Brain({ onError }: { onError: (e: Error) => void }) {
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
                 <CardTitle className="text-[14px] font-normal">{rule.text}</CardTitle>
-                <CardMeta>выучено {when(`${rule.learnedAt}T12:00:00.000Z`)}</CardMeta>
+                <CardMeta>learned {when(`${rule.learnedAt}T12:00:00.000Z`)}</CardMeta>
               </div>
               <Button
                 variant="ghost"
                 size="icon"
                 className="text-destructive"
-                title="Забыть"
+                title="Forget"
                 onClick={() => forget(rule.text)}
               >
                 <Trash2 className="size-4" />
@@ -231,7 +231,7 @@ export function Brain({ onError }: { onError: (e: Error) => void }) {
       )}
 
       <div className="text-muted-foreground mt-3 px-1 text-[12.5px] tracking-wide uppercase">
-        Скиллы ({data.skills.length})
+        Skills ({data.skills.length})
       </div>
       <div className="flex flex-wrap gap-1.5 px-1">
         {data.skills.map((s) => (

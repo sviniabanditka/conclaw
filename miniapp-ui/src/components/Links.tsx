@@ -1,138 +1,213 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ExternalLink, Search, Tag, Trash2, Undo2 } from 'lucide-react';
+import { Check, Globe, Search, Settings2, Trash2, Undo2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardMeta, CardTitle } from '@/components/ui/card';
+import { Card, CardMeta } from '@/components/ui/card';
 import { Input, Textarea } from '@/components/ui/input';
+import { Sheet } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, type LinkFilter, type LinkView } from '@/lib/api';
-import { when } from '@/lib/format';
+import { hostOf, when } from '@/lib/format';
 import { haptic, tap } from '@/lib/telegram';
 
 const FILTERS: { value: LinkFilter; label: string }[] = [
-  { value: 'unread', label: 'Непрочитанные' },
-  { value: 'read', label: 'Прочитанные' },
-  { value: 'all', label: 'Все' },
+  { value: 'unread', label: 'Unread' },
+  { value: 'read', label: 'Read' },
+  { value: 'all', label: 'All' },
 ];
 
-function LinkCard({
+/**
+ * The favicon, or the first letter of the host.
+ *
+ * A row with no picture at all reads as broken rather than as pending, and the
+ * icon arrives seconds after the link does — so the placeholder has to look
+ * deliberate.
+ */
+function LinkIcon({ link }: { link: LinkView }) {
+  const [failed, setFailed] = useState(false);
+  const host = hostOf(link.url);
+
+  if (link.icon && !failed) {
+    return (
+      <img
+        src={link.icon}
+        alt=""
+        className="size-8 shrink-0 rounded-md object-contain"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return (
+    <div className="bg-secondary text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md text-[13px] font-semibold uppercase">
+      {host[0] ?? <Globe className="size-4" />}
+    </div>
+  );
+}
+
+function LinkRow({
   link,
+  onEdit,
   onChanged,
+  onError,
 }: {
   link: LinkView;
+  onEdit: () => void;
   onChanged: () => void;
+  onError: (e: Error) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [tags, setTags] = useState(link.tags.join(', '));
-  const [note, setNote] = useState(link.note ?? '');
   const [busy, setBusy] = useState(false);
+
+  async function toggleRead() {
+    setBusy(true);
+    try {
+      const res = await api.setLinkRead(link.id, !link.read);
+      haptic(res.updated ? 'success' : 'error');
+      if (res.updated) onChanged();
+      else setBusy(false);
+    } catch (e) {
+      setBusy(false);
+      onError(e as Error);
+    }
+  }
+
+  return (
+    <Card className="px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        <LinkIcon link={link} />
+
+        <a
+          href={link.url}
+          target="_blank"
+          rel="noopener"
+          className="min-w-0 flex-1"
+          onClick={tap}
+        >
+          <div className="truncate text-[14.5px] leading-snug font-medium">
+            {link.title ?? hostOf(link.url)}
+          </div>
+          <div className="text-muted-foreground truncate text-[12px]">
+            {hostOf(link.url)} · {when(link.addedAt)}
+            {link.tags.length > 0 && ` · ${link.tags.map((t) => `#${t}`).join(' ')}`}
+          </div>
+        </a>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={busy}
+          title={link.read ? 'Mark unread' : 'Mark read'}
+          onClick={toggleRead}
+        >
+          {link.read ? <Undo2 className="size-4" /> : <Check className="size-4" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          title="Edit"
+          onClick={() => {
+            tap();
+            onEdit();
+          }}
+        >
+          <Settings2 className="size-4" />
+        </Button>
+      </div>
+
+      {link.description && (
+        <CardMeta className="mt-1.5 pl-11">{link.description}</CardMeta>
+      )}
+      {link.note && (
+        <div className="mt-1.5 pl-11 text-[13px] opacity-85">{link.note}</div>
+      )}
+    </Card>
+  );
+}
+
+function EditSheet({
+  link,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  link: LinkView | null;
+  onClose: () => void;
+  onSaved: () => void;
+  onError: (e: Error) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [tags, setTags] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!link) return;
+    setTitle(link.title ?? '');
+    setTags(link.tags.join(', '));
+    setNote(link.note ?? '');
+  }, [link]);
+
+  if (!link) return null;
 
   async function run(action: () => Promise<{ updated?: boolean; deleted?: boolean }>) {
     setBusy(true);
     try {
-      const result = await action();
-      if (result.updated === false || result.deleted === false) {
+      const res = await action();
+      if (res.updated === false || res.deleted === false) {
         haptic('error');
         setBusy(false);
         return;
       }
       haptic('success');
-      onChanged();
-    } catch {
-      // The list reloads on the next action; a failed tap just re-enables.
-      haptic('error');
+      onSaved();
+      onClose();
+    } catch (e) {
       setBusy(false);
+      onError(e as Error);
     }
   }
 
   return (
-    <Card>
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <a
-            href={link.url}
-            target="_blank"
-            rel="noopener"
-            className="text-link flex items-start gap-1.5 font-medium break-words"
-          >
-            <span className="min-w-0">{link.title ?? link.url}</span>
-            <ExternalLink className="mt-1 size-3.5 shrink-0 opacity-60" />
-          </a>
-
-          {link.description && <CardMeta>{link.description}</CardMeta>}
-
-          <CardMeta className="flex flex-wrap items-center gap-x-1.5">
-            <span>{link.domain}</span>
-            <span>·</span>
-            <span>{when(link.addedAt)}</span>
-            {link.tags.map((tag) => (
-              <span key={tag} className="text-link">
-                #{tag}
-              </span>
-            ))}
-          </CardMeta>
-
-          {link.note && <div className="mt-2 text-[13.5px] opacity-85">{link.note}</div>}
+    <Sheet open onClose={onClose} title="Edit link">
+      <div className="flex flex-col gap-2">
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Title"
+        />
+        <Input
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          placeholder="Tags, comma separated"
+        />
+        <Textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note"
+          className="min-h-20"
+        />
+        <div className="text-muted-foreground px-1 text-[12px] break-all">
+          {link.url}
         </div>
 
-        <div className="flex shrink-0 items-center">
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={busy}
-            title={link.read ? 'Вернуть в непрочитанные' : 'Прочитано'}
-            onClick={() => run(() => api.setLinkRead(link.id, !link.read))}
-          >
-            {link.read ? <Undo2 className="size-4" /> : <Check className="size-4" />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Теги и заметка"
-            onClick={() => {
-              tap();
-              setEditing((v) => !v);
-            }}
-          >
-            <Tag className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive"
-            disabled={busy}
-            title="Удалить"
-            onClick={() => run(() => api.deleteLink(link.id))}
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
+        <Button
+          size="block"
+          disabled={busy}
+          onClick={() => run(() => api.updateLink(link.id, { title, tags, note }))}
+        >
+          Save
+        </Button>
+        <Button
+          variant="destructive"
+          size="block"
+          disabled={busy}
+          onClick={() => run(() => api.deleteLink(link.id))}
+        >
+          <Trash2 className="size-4" />
+          Delete
+        </Button>
       </div>
-
-      {editing && (
-        <div className="animate-in-up mt-3 flex flex-col gap-2">
-          <Input
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            placeholder="теги через запятую"
-          />
-          <Textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="заметка"
-            className="min-h-20"
-          />
-          <Button
-            size="block"
-            disabled={busy}
-            onClick={() => run(() => api.updateLink(link.id, { tags, note }))}
-          >
-            Сохранить
-          </Button>
-        </div>
-      )}
-    </Card>
+    </Sheet>
   );
 }
 
@@ -141,7 +216,7 @@ export function Links({ onError }: { onError: (e: Error) => void }) {
   const [tag, setTag] = useState<string>();
   const [q, setQ] = useState('');
   const [data, setData] = useState<{ links: LinkView[]; tags: string[] } | null>(null);
-  // The first load should paint immediately; only typing needs debouncing.
+  const [editing, setEditing] = useState<LinkView | null>(null);
   const loaded = useRef(false);
 
   const load = useCallback(() => {
@@ -156,6 +231,15 @@ export function Links({ onError }: { onError: (e: Error) => void }) {
     return () => clearTimeout(id);
   }, [load]);
 
+  // The icon arrives from a background fetch a few seconds after the link, so
+  // a list opened right after saving one would otherwise show a blank row
+  // until something else caused a reload.
+  useEffect(() => {
+    if (!data?.links.some((l) => !l.icon)) return;
+    const id = setTimeout(load, 5000);
+    return () => clearTimeout(id);
+  }, [data, load]);
+
   return (
     <>
       <div className="relative">
@@ -163,7 +247,7 @@ export function Links({ onError }: { onError: (e: Error) => void }) {
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Поиск по ссылкам"
+          placeholder="Search links"
           className="pl-9"
         />
       </div>
@@ -203,18 +287,33 @@ export function Links({ onError }: { onError: (e: Error) => void }) {
 
       {!data ? (
         <>
-          <Skeleton className="h-20" />
-          <Skeleton className="h-20" />
+          <Skeleton className="h-16" />
+          <Skeleton className="h-16" />
         </>
       ) : data.links.length === 0 ? (
         <div className="text-muted-foreground py-12 text-center text-[14px]">
-          Ничего не найдено.
+          Nothing here.
           <br />
-          Кинь ссылку в чат — она попадёт сюда.
+          Send a link to the chat and it lands in this list.
         </div>
       ) : (
-        data.links.map((link) => <LinkCard key={link.id} link={link} onChanged={load} />)
+        data.links.map((link) => (
+          <LinkRow
+            key={link.id}
+            link={link}
+            onEdit={() => setEditing(link)}
+            onChanged={load}
+            onError={onError}
+          />
+        ))
       )}
+
+      <EditSheet
+        link={editing}
+        onClose={() => setEditing(null)}
+        onSaved={load}
+        onError={onError}
+      />
     </>
   );
 }

@@ -46,14 +46,14 @@ export function History({ onError }: { onError: (e: Error) => void }) {
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Поиск по переписке"
+          placeholder="Search the conversation"
           className="pl-9"
         />
       </div>
 
       {q.trim().length < MIN_QUERY ? (
         <div className="text-muted-foreground py-12 text-center text-[14px]">
-          Ищет и по твоим сообщениям, и по ответам бота.
+          Searches both your messages and the replies.
         </div>
       ) : searching && !messages ? (
         <>
@@ -64,7 +64,7 @@ export function History({ onError }: { onError: (e: Error) => void }) {
         messages.map((m, i) => (
           <Card key={`${m.at}-${i}`}>
             <CardMeta className={cn('mt-0', !m.fromBot && 'text-link')}>
-              {m.fromBot ? assistant : 'Ты'} · {when(m.at)}
+              {m.fromBot ? assistant : 'You'} · {when(m.at)}
             </CardMeta>
             <div className="mt-1.5 text-[14px] leading-snug whitespace-pre-wrap">
               {m.text.length > 600 ? `${m.text.slice(0, 600)}…` : m.text}
@@ -73,7 +73,7 @@ export function History({ onError }: { onError: (e: Error) => void }) {
         ))
       ) : (
         <div className="text-muted-foreground py-12 text-center text-[14px]">
-          Ничего не нашлось.
+          Nothing found.
         </div>
       )}
     </>

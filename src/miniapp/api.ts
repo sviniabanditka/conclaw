@@ -72,6 +72,8 @@ export interface LinkView {
   id: number;
   url: string;
   title: string | null;
+  /** Favicon as a data URI, or null while it is still being fetched. */
+  icon: string | null;
   description: string | null;
   domain: string | null;
   tags: string[];
@@ -159,6 +161,7 @@ function toLinkView(row: LinkRow): LinkView {
     id: row.id,
     url: row.url,
     title: row.title,
+    icon: row.icon,
     description: row.description,
     domain: row.domain,
     tags: splitTags(row.tags),
@@ -211,12 +214,18 @@ export function setLinkRead(
 export function setLinkFields(
   deps: ApiDeps,
   id: number,
-  fields: { tags?: string; note?: string },
+  fields: { tags?: string; note?: string; title?: string },
 ): { updated: boolean } {
   if (!Number.isInteger(id)) return { updated: false };
   const update: LinkUpdate = {};
   if (typeof fields.tags === 'string') update.tags = fields.tags.slice(0, 500);
   if (typeof fields.note === 'string') update.note = fields.note.slice(0, 2000);
+  if (typeof fields.title === 'string') {
+    update.title = fields.title.slice(0, 200);
+    // A hand-written title is the considered one, so the fetched preview is
+    // re-run to pick up an icon for it rather than left as it was.
+    update.enriched_at = null;
+  }
   if (Object.keys(update).length === 0) return { updated: false };
   return { updated: deps.updateLink(deps.groupFolder, id, update) };
 }

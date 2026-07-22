@@ -80,6 +80,7 @@ import {
   updateLink,
   deleteLink,
   countLinks,
+  unenrichedLinks,
   searchMessages,
   getLastSenderName,
   linkTimestamps,
@@ -120,6 +121,7 @@ import { applyReminderAction, reminderButtons } from './reminder-actions.js';
 import { ReplyIndex, applyReplyAction, replyButtons } from './reply-actions.js';
 import { TraceStore, TurnRecorder } from './turn-trace.js';
 import { dayStats } from './day-stats.js';
+import { LinkEnricher } from './link-enrich.js';
 import {
   applyRuleAction,
   learnButton,
@@ -1374,6 +1376,22 @@ async function main(): Promise<void> {
       tmpDir: path.join(DATA_DIR, 'tmp'),
       getGatewayConfig: () => onecli.getContainerConfig(),
       intervalMs: CALENDAR_REFRESH_INTERVAL_MS,
+    }).start();
+  }
+
+  // Fetch a title and a favicon for links as they arrive, so the archive is
+  // legible before the evening digest gets round to describing anything.
+  for (const group of Object.values(registeredGroups)) {
+    if (!group.isMain) continue;
+    new LinkEnricher({
+      pending: () =>
+        unenrichedLinks(group.folder).map((l) => ({
+          id: l.id,
+          url: l.url,
+          title: l.title,
+        })),
+      update: (id, fields) => updateLink(group.folder, id, fields),
+      intervalMs: 60_000,
     }).start();
   }
 

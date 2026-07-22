@@ -180,6 +180,15 @@ function createSchema(database: Database.Database): void {
     /* columns already exist */
   }
 
+  // Link previews: a title and a favicon fetched on the host when the link
+  // arrives, so the archive is legible before anyone describes it.
+  try {
+    database.exec(`ALTER TABLE links ADD COLUMN icon TEXT`);
+    database.exec(`ALTER TABLE links ADD COLUMN enriched_at TEXT`);
+  } catch {
+    /* columns already exist */
+  }
+
   // Add reply context columns if they don't exist (migration for existing DBs)
   try {
     database.exec(`ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT`);
@@ -798,6 +807,9 @@ export interface LinkRow {
   group_folder: string;
   url: string;
   title: string | null;
+  /** Favicon as a data URI — external image hosts are blocked by the app's CSP. */
+  icon: string | null;
+  enriched_at: string | null;
   description: string | null;
   domain: string | null;
   tags: string | null;
@@ -895,6 +907,8 @@ export interface LinkUpdate {
   description?: string;
   tags?: string;
   note?: string;
+  icon?: string | null;
+  enriched_at?: string | null;
 }
 
 /** Update a link in place. Returns false if it is not this group's. */
@@ -910,7 +924,14 @@ export function updateLink(
     sets.push('read = ?', 'read_at = ?');
     params.push(fields.read ? 1 : 0, fields.read ? now : null);
   }
-  for (const key of ['title', 'description', 'tags', 'note'] as const) {
+  for (const key of [
+    'title',
+    'description',
+    'tags',
+    'note',
+    'icon',
+    'enriched_at',
+  ] as const) {
     if (fields[key] !== undefined) {
       sets.push(`${key} = ?`);
       params.push(fields[key]);
@@ -1032,4 +1053,15 @@ export function taskRunTimes(groupFolder: string, sinceIso: string): string[] {
     )
     .all(groupFolder, sinceIso) as { run_at: string }[];
   return rows.map((r) => r.run_at);
+}
+
+/** Links that have never been fetched, oldest first. */
+export function unenrichedLinks(groupFolder: string, limit = 20): LinkRow[] {
+  return db
+    .prepare(
+      `SELECT * FROM links
+       WHERE group_folder = ? AND enriched_at IS NULL
+       ORDER BY added_at LIMIT ?`,
+    )
+    .all(groupFolder, limit) as LinkRow[];
 }

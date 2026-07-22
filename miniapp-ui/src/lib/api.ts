@@ -14,6 +14,7 @@ export interface LinkView {
   id: number;
   url: string;
   title: string | null;
+  icon: string | null;
   description: string | null;
   domain: string | null;
   tags: string[];
@@ -95,8 +96,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  if (res.status === 401) throw new Error('Нет доступа');
-  if (!res.ok) throw new Error(`Ошибка ${res.status}`);
+  if (res.status === 401) throw new Error('Access denied');
+  if (!res.ok) throw new Error(`Error ${res.status}`);
   return (await res.json()) as T;
 }
 
@@ -128,7 +129,7 @@ export const api = {
     ),
   setLinkRead: (id: number, read: boolean) =>
     post<{ updated: boolean }>('links/read', { id, read }),
-  updateLink: (id: number, fields: { tags?: string; note?: string }) =>
+  updateLink: (id: number, fields: { tags?: string; note?: string; title?: string }) =>
     post<{ updated: boolean }>('links/update', { id, ...fields }),
   deleteLink: (id: number) => post<{ deleted: boolean }>('links/delete', { id }),
 

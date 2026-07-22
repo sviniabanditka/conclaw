@@ -19,7 +19,7 @@ export function Ask({ onError }: { onError: (e: Error) => void }) {
       const res = await api.send(text);
       if (!res.sent) {
         haptic('error');
-        setRefused(res.reason ?? 'не отправлено');
+        setRefused(res.reason ?? 'not sent');
         setBusy(false);
         return;
       }
@@ -35,7 +35,7 @@ export function Ask({ onError }: { onError: (e: Error) => void }) {
     return (
       <div className="text-muted-foreground flex flex-col items-center gap-3 py-12 text-center text-[14px]">
         <Check className="text-primary size-8" />
-        Отправлено. Ответ придёт в чат.
+        Sent. The reply arrives in the chat.
         <Button
           variant="secondary"
           onClick={() => {
@@ -44,7 +44,7 @@ export function Ask({ onError }: { onError: (e: Error) => void }) {
             setBusy(false);
           }}
         >
-          Написать ещё
+          Write another
         </Button>
       </div>
     );
@@ -55,16 +55,16 @@ export function Ask({ onError }: { onError: (e: Error) => void }) {
       <Textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="Что спросить или поручить?"
+        placeholder="Ask something, or hand over a task"
         autoFocus
       />
       {refused && <div className="text-destructive px-1 text-[13px]">{refused}</div>}
       <Button size="block" disabled={busy || !text.trim()} onClick={send}>
         <SendHorizontal className="size-4" />
-        Отправить
+        Send
       </Button>
       <p className="text-muted-foreground px-1 text-[12.5px]">
-        Уходит в ту же очередь, что и сообщение из чата — ответ придёт в Telegram.
+        Goes into the same queue as a chat message — the reply arrives in Telegram.
       </p>
     </>
   );
