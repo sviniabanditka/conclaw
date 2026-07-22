@@ -80,7 +80,7 @@ function Editor({
           value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder="Markdown body"
-          className="min-h-56 font-mono text-[13px]"
+          className="min-h-56 font-mono"
         />
         <Input
           value={tags}
@@ -155,7 +155,7 @@ export function Notes({ onError }: { onError: (e: Error) => void }) {
         </div>
         <Button
           size="icon"
-          className="size-10 shrink-0"
+          className="size-11 shrink-0"
           title="New note"
           onClick={() => {
             tap();

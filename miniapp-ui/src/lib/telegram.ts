@@ -14,8 +14,6 @@ interface TelegramWebApp {
   initData: string;
   ready(): void;
   expand(): void;
-  /** Bot API 8.0. Absent in older clients, where expand() is the best available. */
-  requestFullscreen?(): void;
   disableVerticalSwipes?(): void;
   setHeaderColor?(color: string): void;
   HapticFeedback?: HapticFeedback;
@@ -28,14 +26,10 @@ const tg: TelegramWebApp | undefined = (
 export function initTelegram(): void {
   if (!tg) return;
   tg.ready();
-  // Fullscreen arrived in Bot API 8.0 and throws in clients that predate it,
-  // so expand() stays as the floor rather than an alternative.
+  // expand(), not requestFullscreen(): fullscreen takes the app out from under
+  // Telegram's own header, and on a phone with a notch that puts the top of
+  // the content behind the status bar and the island.
   tg.expand();
-  try {
-    tg.requestFullscreen?.();
-  } catch {
-    // An older client, or a layout that refuses it. expand() already ran.
-  }
   // Without this, dragging inside a scrollable list closes the app.
   tg.disableVerticalSwipes?.();
   tg.setHeaderColor?.('bg_color');
