@@ -25,17 +25,14 @@ Single Node.js process with channel system. Channels (WhatsApp, Telegram, Slack,
 
 ## Skills
 
-Every skill *definition* ships on `main`. Whether the code it installs also ships
-on `main` is what separates the types:
+Every skill ships its code on `main`. What a skill does when you run it is
+auth, registration and config — the parts that need your credentials and cannot
+live in a repository.
 
-- **Feature skills** — code is already on `main` (inert until configured); running
-  `/add-<name>` only does auth/registration/config wiring. Their Phase 2 reads
-  *"Verify Code Is Present"*. E.g. `/add-telegram`, `/add-telegram-swarm`,
-  `/add-telegram-reactions`, `/add-voice-telegram`, `/add-compact`,
-  `/channel-formatting`
-- **Patch skills** — code is **not** on `main`; running `/add-<name>` edits tracked
-  source (`container/Dockerfile`, `container/agent-runner/`, adds `src/*.test.ts`).
-  Their Phase 2 reads *"Apply Changes"*. E.g. `/add-gcal-tool`, `/add-mnemon`
+- **Feature skills** — the code is already on `main` and inert until configured.
+  Their Phase 2 reads *"Verify Code Is Present"*. E.g. `/add-telegram`,
+  `/add-telegram-swarm`, `/add-telegram-reactions`, `/add-voice-telegram`,
+  `/add-compact`, `/channel-formatting`, `/add-gcal-tool`, `/add-mnemon`
 - **Utility skills** — ship code files alongside SKILL.md (e.g. `/claw`, `/refresh-token`)
 - **Operational skills** — instruction-only workflows (e.g. `/setup`, `/debug`)
 - **Container skills** — loaded inside agent containers at runtime (`container/skills/`)
@@ -46,18 +43,28 @@ One opt-in exception, `/use-native-credential-proxy`, is still a `git merge` of
 the `skill/native-credential-proxy` branch — it replaces OneCLI and so can't ship
 enabled on `main`.
 
-### Do not commit patch-skill output to `main`
+### Inert by default
 
-A patch skill's edits are **per-install state**. Committing them to `main` bakes
-the feature into every clean install and removes the ability to choose — which is
-the whole point of the skill. Keep them uncommitted in the working tree (or on a
-local branch that is never merged).
+Shipping a feature's code on `main` only works if an install that never asked
+for it pays nothing. Each one is keyed on something the user provides:
 
-What *does* belong on `main` is any fix to the **skill itself**: `.claude/skills/<name>/`
-— SKILL.md, its bundled test templates, its scripts. That is how a bug found while
-installing stops recurring for the next install. Same rule for utility skills:
-`.claude/skills/refresh-token/refresh-token.sh` is the template and belongs on
-`main`; the `scripts/refresh-token.sh` copy it installs is local state.
+| feature | switched on by |
+|---|---|
+| Google Calendar | the `.calendar-mcp` stub mount existing |
+| mnemon memory | on by default; `MNEMON_DISABLED=1` turns it off |
+| Telegram | `TELEGRAM_BOT_TOKEN` in `.env` |
+| Mini App | `MINIAPP_PORT` **and** `MINIAPP_ALLOWED_USER_IDS` |
+| voice transcription | `WHISPER_BIN` / `WHISPER_MODEL` resolving |
+| heartbeat, weather | their env vars being set |
+
+A feature that starts a process, opens a port or writes a file without being
+asked is not inert, whatever its README says. Registering an MCP server whose
+credentials are absent is the case that taught this: it fails on every
+container start and logs an error in installs that have no calendar.
+
+Local install state — `.env`, `store/`, `groups/<name>/`, the copies utility
+skills write into `scripts/` — stays out of git. That is data and secrets, not
+code.
 
 | Skill | When to Use |
 |-------|-------------|

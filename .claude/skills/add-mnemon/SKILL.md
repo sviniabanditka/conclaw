@@ -41,85 +41,32 @@ curl -fsSL https://api.github.com/repos/mnemon-dev/mnemon/releases/latest | grep
 
 Note the version (e.g. `0.1.1`, no leading `v`) — use it as `MNEMON_VERSION`.
 
-## Phase 2: Apply Changes
+## Phase 2: Verify Code Is Present
 
-### 1. Dockerfile — install the mnemon binary
-
-`container/Dockerfile` runs as root until the `USER node` line, so the install
-**must go before it**. Insert this block right after the
-`RUN npm install -g agent-browser @anthropic-ai/claude-code` line (skip if
-`grep -q 'MNEMON_VERSION' container/Dockerfile` already matches):
-
-```dockerfile
-# ---- mnemon — persistent agent memory ----------------------------------------
-ARG MNEMON_VERSION=0.1.1
-RUN ARCH=$(dpkg --print-architecture) && \
-    curl -fsSL "https://github.com/mnemon-dev/mnemon/releases/download/v${MNEMON_VERSION}/mnemon_${MNEMON_VERSION}_linux_${ARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin mnemon && \
-    chmod +x /usr/local/bin/mnemon
-
-# Memory lives in the per-group .claude/ mount so it persists across restarts.
-ENV MNEMON_DATA_DIR=/home/node/.claude/mnemon
-```
-
-`MNEMON_DATA_DIR` points into `/home/node/.claude`, which the container-runner
-bind-mounts per group (`src/container-runner.ts`), so each group has isolated,
-persistent memory.
-
-### 2. Entrypoint — run `mnemon setup` on each container start
-
-ConClaw's entrypoint is **not a separate file** — it is generated inline by a
-`printf` in the Dockerfile (the `RUN printf '#!/bin/bash\nset -e\n...'` line).
-`mnemon setup` is idempotent; add it right after `set -e`, before the `cat` that
-captures stdin, so the handshake JSON on stdin is untouched. Change the printf so
-its script body reads:
-
-```
-#!/bin/bash
-set -e
-mnemon setup --target claude-code --yes --global >&2 || echo "mnemon setup failed, continuing without memory" >&2
-cd /app && npx tsc --outDir /tmp/dist 2>&1 >&2
-...
-```
-
-Concretely, insert
-`mnemon setup --target claude-code --yes --global >&2 || echo "mnemon setup failed, continuing without memory" >&2\n`
-immediately after the `set -e\n` in the printf format string. `>&2` routes
-mnemon's output to stderr (docker logs) so it never pollutes the JSON stdout the
-host parses.
-
-> **Why the `||` is load-bearing.** The entrypoint runs under `set -e`, and this
-> line sits *before* the `cat` that reads the handshake JSON. Bare, any setup
-> failure — corrupt store, a bad release, a permissions problem on the mount —
-> kills the container before it ever reads stdin, so the agent stops answering
-> entirely instead of merely losing memory. The fallback downgrades a memory
-> outage to exactly that: a memory outage. Verify it by shadowing `mnemon` with a
-> failing stub on `PATH` and confirming the entrypoint still reaches `cat`.
-
-### 3. Install the structural guard test
-
-mnemon ships as a GitHub-release binary and its wiring lives in the Dockerfile
-(both the install layer and the printf entrypoint), so nothing is importable or
-typed — a structural test is the only red-on-drift guard. ConClaw keeps the
-entrypoint inside the Dockerfile, so a single test covers both reach-ins:
+mnemon ships on `main`: the binary is installed by `container/Dockerfile` and
+`mnemon setup` runs from the entrypoint on every container start. There is
+nothing to patch — this phase only confirms nothing has drifted.
 
 ```bash
-cp .claude/skills/add-mnemon/mnemon-dockerfile.test.ts src/mnemon-dockerfile.test.ts
 npx vitest run src/mnemon-dockerfile.test.ts
-```
-
-`cp` overwrites in place — re-running the skill is safe.
-
-### 4. Rebuild and smoke-test the image
-
-```bash
-./container/build.sh
 docker run --rm --entrypoint mnemon conclaw-agent:latest --version
 ```
 
-> **Build cache:** if the mnemon layer doesn't appear, the buildkit context is
-> stale. Prune the builder, then re-run `./container/build.sh` (see the project
-> CLAUDE.md "Container Build Cache" note).
+If the image has no `mnemon`, it predates the change: rebuild with
+`./container/build.sh`. If the buildkit skips the layer, prune the builder
+first (see the project CLAUDE.md note on the build cache).
+
+> **Why the `||` in the entrypoint is load-bearing.** The entrypoint runs under
+> `set -e`, and `mnemon setup` sits *before* the `cat` that reads the handshake
+> JSON. Bare, any setup failure — corrupt store, a bad release, a permissions
+> problem on the mount — would kill the container before it ever read stdin, so
+> the agent would stop answering entirely instead of merely losing memory. The
+> fallback downgrades a memory outage to exactly that. The guard test covers it.
+
+### Turning it off
+
+Memory is on by default. To run without it, set `MNEMON_DISABLED=1` in the
+container environment — no rebuild, no edit to the image.
 
 ## Phase 3: Restart and Verify
 

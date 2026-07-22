@@ -41,7 +41,13 @@ describe('container/Dockerfile installs and wires mnemon', () => {
   // The entrypoint runs under `set -e`, and mnemon setup sits before the `cat`
   // that reads the handshake JSON. Without a fallback, any setup failure kills
   // the container before it ever reads stdin — the agent stops answering at all
-  // rather than merely losing memory.
+  // rather than merely losing memory. Deliberate deviation from the skill.
+  // Memory is on by default, but an install that does not want it should not
+  // have to edit the image to say so.
+  it('can be switched off without rebuilding', () => {
+    expect(dockerfile()).toContain('MNEMON_DISABLED');
+  });
+
   it('degrades gracefully when mnemon setup fails', () => {
     expect(text).toMatch(/mnemon setup --target claude-code[^\\]*\|\|/);
   });

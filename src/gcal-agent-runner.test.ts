@@ -49,6 +49,14 @@ describe('agent-runner wires the Google Calendar MCP server', () => {
     }
   });
 
+  // The wiring ships on main, so it has to stay silent where nobody asked for
+  // a calendar: registering a stdio server whose credentials are not mounted
+  // starts a process that fails and logs on every container start.
+  it('registers the server only when the stub credentials are mounted', () => {
+    expect(text).toMatch(/existsSync\(CALENDAR_CREDENTIALS\)/);
+    expect(text).toContain('...calendarMcpServer()');
+  });
+
   it('registers a calendar MCP server running google-calendar-mcp', () => {
     expect(text).toMatch(/calendar:\s*\{/);
     expect(text).toContain('google-calendar-mcp');

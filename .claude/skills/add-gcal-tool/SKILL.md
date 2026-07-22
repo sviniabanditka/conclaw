@@ -124,146 +124,32 @@ onecli agents list
 `secretMode: all` is sufficient. If `selective`, assign the Google Calendar secret
 to the agent explicitly.
 
-## Phase 2: Apply Code Changes (global wiring)
+## Phase 2: Verify Code Is Present
 
-### Check if already applied
+The wiring ships on `main`: `container/Dockerfile` installs
+`@cocal/google-calendar-mcp`, and `container/agent-runner/src/index.ts`
+registers the server and allows its read-only tools.
 
-```bash
-grep -q 'CALENDAR_MCP_VERSION' container/Dockerfile && echo "ALREADY APPLIED"
-```
-
-### 1. Dockerfile — install the MCP server (npm)
-
-In `container/Dockerfile`, right after
-`RUN npm install -g agent-browser @anthropic-ai/claude-code`, add:
-
-```dockerfile
-# ---- Google Calendar MCP server ---------------------------------------------
-ARG CALENDAR_MCP_VERSION=2.6.1
-RUN npm install -g "@cocal/google-calendar-mcp@${CALENDAR_MCP_VERSION}"
-```
-
-(ConClaw uses **npm**, not pnpm.)
-
-### 2. agent-runner — register the server and allow its tools
-
-Edit `container/agent-runner/src/index.ts` inside the `query({ options: {...} })`
-call. Two edits:
-
-**a.** In `allowedTools`, list the calendar tools next to the existing
-`'mcp__conclaw__*',` entry:
-
-```ts
-        'mcp__conclaw__*',
-        'mcp__calendar__list-calendars',
-        'mcp__calendar__list-events',
-        'mcp__calendar__search-events',
-        'mcp__calendar__get-event',
-        'mcp__calendar__get-freebusy',
-        'mcp__calendar__get-current-time',
-```
-
-> **Read-only by default, and listed tool by tool for a reason.** The obvious
-> `mcp__calendar__*` also grants `create-event`, `update-event` and
-> `delete-event`. A wrong answer is a nuisance the user corrects in the next
-> message; a deleted meeting is damage other people notice, that the agent has
-> no way to undo, and that nobody may connect back to the bot. Ask before adding
-> the write tools, and add them individually — a wildcard silently re-grants
-> everything the next time the server ships a new tool.
-
-**b.** In the `mcpServers` map, add a `calendar` server alongside `conclaw`:
-
-```ts
-      mcpServers: {
-        conclaw: {
-          // ...existing conclaw block, unchanged...
-        },
-        calendar: {
-          command: 'google-calendar-mcp',
-          args: [],
-          env: {
-            GOOGLE_OAUTH_CREDENTIALS:
-              '/workspace/extra/.calendar-mcp/gcp-oauth.keys.json',
-            GOOGLE_CALENDAR_MCP_TOKEN_PATH:
-              '/workspace/extra/.calendar-mcp/credentials.json',
-            // MCP stdio servers only inherit a safe-list of env vars (HOME,
-            // PATH, SHELL, ...), which omits everything OneCLI needs to
-            // intercept googleapis.com and swap the stub token for the real
-            // one. Forward them explicitly or the stub leaks straight to
-            // Google and every call 401s.
-            ...onecliProxyEnv(),
-          },
-        },
-      },
-```
-
-The container-runner mounts additional dirs at `/workspace/extra/<name>`, so the
-stub mount from Phase 3 lands exactly at these paths.
-
-**c.** Add the `onecliProxyEnv()` helper near the other top-level helpers (e.g.
-just after `log()`):
-
-```ts
-// Proxy/TLS vars the OneCLI gateway sets on the container so outbound HTTPS is
-// intercepted and real credentials are injected. MCP stdio child processes do
-// not inherit these by default, so servers that call third-party APIs must
-// receive them explicitly.
-const ONECLI_PROXY_ENV_VARS = [
-  'HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy',
-  'NODE_EXTRA_CA_CERTS', 'NODE_USE_ENV_PROXY', 'SSL_CERT_FILE',
-] as const;
-
-function onecliProxyEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of ONECLI_PROXY_ENV_VARS) {
-    const value = process.env[key];
-    if (value) env[key] = value;
-  }
-  return env;
-}
-```
-
-> **Why this is load-bearing, not defensive.** `@modelcontextprotocol/sdk`'s
-> stdio transport builds the child env from `DEFAULT_INHERITED_ENV_VARS` —
-> `HOME`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `USER` — plus whatever `env` you
-> pass. Every var OneCLI sets to route and trust its intercepting proxy
-> (`HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `NODE_USE_ENV_PROXY`)
-> is absent from that list. Omit the forward and `google-calendar-mcp` calls
-> Google **directly**, sending the literal `onecli-managed` stub. Verified by
-> calling `list-calendars` in the built image both ways:
->
-> | Proxy env | Result |
-> |---|---|
-> | forwarded | `Google API error: app_not_connected` — a **OneCLI** error; intercepted |
-> | omitted | `Invalid Credentials (Authorization)` — a **Google** error; bypassed |
->
-> The bypass fails identically to "OAuth not connected yet", so it is easy to
-> misdiagnose as a Phase 1 problem. Distinguish them by which service produced
-> the error.
-
-### 3. Install the guard tests
-
-The MCP server is a stdio CLI in the image (not imported), and the SDK wiring is a
-plain object literal — both need structural guards:
+**It is inert until the stubs are mounted.** The agent-runner registers the
+server only when `/workspace/extra/.calendar-mcp/gcp-oauth.keys.json` exists —
+otherwise it would start a stdio process that fails immediately and logs an
+error on every container start, in every install that never asked for a
+calendar. So Phase 3 is what actually switches this on.
 
 ```bash
-cp .claude/skills/add-gcal-tool/gcal-dockerfile.test.ts src/gcal-dockerfile.test.ts
-cp .claude/skills/add-gcal-tool/gcal-agent-runner.test.ts src/gcal-agent-runner.test.ts
 npx vitest run src/gcal-dockerfile.test.ts src/gcal-agent-runner.test.ts
+docker run --rm --entrypoint sh conclaw-agent:latest -c 'command -v google-calendar-mcp'
 ```
 
-`gcal-dockerfile.test.ts` asserts the `ARG` + `npm install -g` line exist.
-`gcal-agent-runner.test.ts` asserts the agent-runner registers the `calendar`
-server and allows the read-only tools. Drop either Phase 2 edit and a test goes
-red; so does a wildcard that would hand the agent write access.
+If the binary is missing the image predates the change — `./container/build.sh`,
+pruning the builder first if the layer is skipped.
 
-### 4. Rebuild the image
+### The read-only rule
 
-```bash
-./container/build.sh
-```
-
-> Stale COPY cache? Prune the builder, then rebuild (project CLAUDE.md note).
+Tools are listed one by one rather than by wildcard, and the guard test fails
+on `mcp__calendar__*` or on any of `create-event`, `update-event`,
+`delete-event`. A wrong answer is a nuisance; a deleted meeting is damage other
+people notice and the agent cannot undo. Keep it that way.
 
 ## Phase 3: Mount the stubs per group
 

@@ -119,6 +119,58 @@ function log(message: string): void {
   console.error(`[agent-runner] ${message}`);
 }
 
+// Proxy/TLS vars the OneCLI gateway sets on the container so outbound HTTPS is
+// intercepted and real credentials are injected. MCP stdio child processes do
+// not inherit these by default, so servers that call third-party APIs must
+// receive them explicitly.
+const ONECLI_PROXY_ENV_VARS = [
+  'HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy',
+  'NODE_EXTRA_CA_CERTS', 'NODE_USE_ENV_PROXY', 'SSL_CERT_FILE',
+] as const;
+
+function onecliProxyEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of ONECLI_PROXY_ENV_VARS) {
+    const value = process.env[key];
+    if (value) env[key] = value;
+  }
+  return env;
+}
+
+/** Stub credentials, mounted per group by the container-runner. */
+const CALENDAR_CREDENTIALS =
+  '/workspace/extra/.calendar-mcp/gcp-oauth.keys.json';
+
+/**
+ * The calendar server, or nothing.
+ *
+ * The wiring ships enabled but inert: registering a stdio server whose
+ * credentials are not mounted starts a process that fails immediately and logs
+ * an error on every container start, in every install that never asked for a
+ * calendar. Keying on the mount means the code can live on main while staying
+ * silent until `/add-gcal-tool` has actually mounted the stubs.
+ */
+function calendarMcpServer(): Record<string, unknown> {
+  if (!fs.existsSync(CALENDAR_CREDENTIALS)) return {};
+  return {
+    calendar: {
+      command: 'google-calendar-mcp',
+      args: [],
+      env: {
+        GOOGLE_OAUTH_CREDENTIALS: CALENDAR_CREDENTIALS,
+        GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+          '/workspace/extra/.calendar-mcp/credentials.json',
+        // MCP stdio servers only inherit a safe-list of env vars (HOME,
+        // PATH, SHELL, ...), which omits everything OneCLI needs to
+        // intercept googleapis.com and swap the stub token for the real
+        // one. Forward them explicitly or the stub leaks straight to
+        // Google and every call 401s.
+        ...onecliProxyEnv(),
+      },
+    },
+  };
+}
+
 /**
  * Live progress events, for the host to render a message that updates while the
  * agent works.
@@ -495,7 +547,17 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__conclaw__*'
+        'mcp__conclaw__*',
+        // Calendar is read-only on purpose, listed tool by tool rather than by
+        // wildcard: a wildcard would also grant the create, update and delete
+        // event tools. A wrong answer is a nuisance; a deleted meeting is
+        // damage other people notice and the agent cannot undo.
+        'mcp__calendar__list-calendars',
+        'mcp__calendar__list-events',
+        'mcp__calendar__search-events',
+        'mcp__calendar__get-event',
+        'mcp__calendar__get-freebusy',
+        'mcp__calendar__get-current-time'
       ],
       env: sdkEnv,
       // Emits `stream_event` messages carrying token deltas, so the host can
@@ -514,6 +576,7 @@ async function runQuery(
             CONCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        ...calendarMcpServer(),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
