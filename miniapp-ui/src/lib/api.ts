@@ -60,6 +60,18 @@ export interface Brain {
   turns: TurnTrace[];
 }
 
+export interface DayStats {
+  day: string;
+  meetings: number;
+  meetingMinutes: number;
+  linksSaved: number;
+  linksRead: number;
+  notesTouched: number;
+  messagesFromUser: number;
+  messagesFromBot: number;
+  tasksRun: number;
+}
+
 export interface Overview {
   linkCount: number;
   unreadLinkCount: number;
@@ -125,6 +137,7 @@ export const api = {
   send: (text: string) => post<{ sent: boolean; reason?: string }>('message', { text }),
 
   brain: () => request<Brain>('brain'),
+  days: (n = 7) => request<{ days: DayStats[] }>(`days${query({ n: String(n) })}`),
   forgetRule: (text: string) => post<{ removed: boolean }>('rules/forget', { text }),
   installSkill: (name: string) =>
     post<{ installed: boolean; reason?: string }>('skills/install', { name }),

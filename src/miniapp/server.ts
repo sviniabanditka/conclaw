@@ -21,6 +21,7 @@ import { verifyInitData } from './auth.js';
 import {
   ApiDeps,
   brain,
+  days,
   deleteTask,
   discardSkill,
   forgetRule,
@@ -269,6 +270,9 @@ async function handle(
         return;
       case '/api/brain':
         send(res, 200, brain(opts.api));
+        return;
+      case '/api/days':
+        send(res, 200, days(opts.api, Number(url.searchParams.get('n') ?? 7)));
         return;
     }
   }

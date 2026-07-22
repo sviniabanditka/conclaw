@@ -56,7 +56,7 @@ function partsIn(ms: number, timeZone: string): Parts {
   };
 }
 
-function dayKey(ms: number, timeZone: string): string {
+export function dayKey(ms: number, timeZone: string): string {
   const p = partsIn(ms, timeZone);
   return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
 }

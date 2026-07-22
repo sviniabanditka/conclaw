@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Bookmark, CalendarClock, KeyRound } from 'lucide-react';
 
 import { Card, CardMeta, CardTitle } from '@/components/ui/card';
+import { Week } from '@/components/Week';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, type Overview as OverviewData } from '@/lib/api';
 import { ago, plural, when } from '@/lib/format';
@@ -74,6 +75,8 @@ export function Overview({ onError }: { onError: (e: Error) => void }) {
           </CardMeta>
         </div>
       </Card>
+
+      <Week onError={onError} />
 
       {data.upcoming.length > 0 && (
         <div className="text-muted-foreground mt-2 px-1 text-[12.5px] tracking-wide uppercase">

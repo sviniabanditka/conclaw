@@ -1001,3 +1001,35 @@ export function getLastSenderName(chatJid: string): string | null {
     .get(chatJid) as { sender_name: string } | undefined;
   return row?.sender_name ?? null;
 }
+
+/** Timestamps only, for the day-by-day reconstruction. */
+export function linkTimestamps(
+  groupFolder: string,
+): { added_at: string; read_at: string | null }[] {
+  return db
+    .prepare('SELECT added_at, read_at FROM links WHERE group_folder = ?')
+    .all(groupFolder) as { added_at: string; read_at: string | null }[];
+}
+
+export function messageTimestamps(
+  chatJid: string,
+  sinceIso: string,
+): { timestamp: string; is_bot_message: number }[] {
+  return db
+    .prepare(
+      `SELECT timestamp, is_bot_message FROM messages
+       WHERE chat_jid = ? AND timestamp >= ?`,
+    )
+    .all(chatJid, sinceIso) as { timestamp: string; is_bot_message: number }[];
+}
+
+export function taskRunTimes(groupFolder: string, sinceIso: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT l.run_at FROM task_run_logs l
+       JOIN scheduled_tasks t ON t.id = l.task_id
+       WHERE t.group_folder = ? AND l.run_at >= ?`,
+    )
+    .all(groupFolder, sinceIso) as { run_at: string }[];
+  return rows.map((r) => r.run_at);
+}

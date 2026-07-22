@@ -148,6 +148,18 @@ beforeAll(async () => {
       discarded.push(name);
       return true;
     },
+    days: (n) =>
+      Array.from({ length: n }, (_, i) => ({
+        day: `2026-07-${String(16 + i).padStart(2, '0')}`,
+        meetings: i,
+        meetingMinutes: i * 30,
+        linksSaved: 0,
+        linksRead: 0,
+        notesTouched: 0,
+        messagesFromUser: 0,
+        messagesFromBot: 0,
+        tasksRun: 0,
+      })),
     recentTurns: () => [
       {
         skills: ['notes'],
@@ -555,6 +567,29 @@ describe('startMiniAppServer', () => {
  * a learned rule could not be removed from a phone at all, and a proposed
  * skill was approved on the strength of a single line of description.
  */
+describe('days', () => {
+  it('returns the requested window', async () => {
+    const body = await json(await get('/api/days?n=3', initData()));
+    expect(body.days).toHaveLength(3);
+    expect(body.days[0].day).toBe('2026-07-16');
+  });
+
+  it('defaults to a week when asked for nonsense', async () => {
+    expect((await json(await get('/api/days?n=abc', initData()))).days).toHaveLength(7);
+    expect((await json(await get('/api/days', initData()))).days).toHaveLength(7);
+  });
+
+  // Each call recomputes every bucket, including a walk of the vault.
+  it('caps the window instead of accepting any number', async () => {
+    const body = await json(await get('/api/days?n=9999', initData()));
+    expect(body.days.length).toBeLessThanOrEqual(31);
+  });
+
+  it('needs auth like everything else', async () => {
+    expect((await get('/api/days')).status).toBe(401);
+  });
+});
+
 describe('brain', () => {
   it('returns rules, installed skills and pending proposals', async () => {
     const body = await json(await get('/api/brain', initData()));

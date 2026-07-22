@@ -80,6 +80,9 @@ import {
   countLinks,
   searchMessages,
   getLastSenderName,
+  linkTimestamps,
+  messageTimestamps,
+  taskRunTimes,
 } from './db.js';
 import {
   eventsFilePath,
@@ -114,6 +117,7 @@ import { Heartbeat } from './heartbeat.js';
 import { applyReminderAction, reminderButtons } from './reminder-actions.js';
 import { ReplyIndex, applyReplyAction, replyButtons } from './reply-actions.js';
 import { TraceStore, TurnRecorder } from './turn-trace.js';
+import { dayStats } from './day-stats.js';
 import {
   applyRuleAction,
   learnButton,
@@ -407,6 +411,19 @@ function recordBotMessage(
     // History is a convenience; never fail a reply over it.
     logger.debug({ chatJid, err }, 'Failed to record bot message');
   }
+}
+
+/**
+ * Where this group's notes live on the host, from its declared mounts.
+ *
+ * Returns null when the vault is not mounted — an install without Obsidian is
+ * ordinary, and the day view simply reports no notes rather than failing.
+ */
+function vaultNotesDir(group: RegisteredGroup | undefined): string | null {
+  const mount = group?.containerConfig?.additionalMounts?.find(
+    (m) => m.containerPath === 'obsidian-vault',
+  );
+  return mount ? path.join(mount.hostPath, 'conclaw') : null;
 }
 
 /**
@@ -1434,6 +1451,26 @@ async function main(): Promise<void> {
         rejectSkill: (name) =>
           rejectProposal(resolveGroupFolderPath(mainGroupFolder), name),
         recentTurns: (jid) => traces.recent(jid),
+        days: (count) => {
+          const groupDir = resolveGroupFolderPath(mainGroupFolder);
+          const since = new Date(
+            Date.now() - (count + 1) * 86_400_000,
+          ).toISOString();
+          return dayStats(
+            {
+              timeZone: TIMEZONE,
+              eventsFile: path.join(groupDir, 'calendar_events.json'),
+              // The vault's location is already declared in the group's
+              // mounts; deriving it by climbing out of the group folder would
+              // be a second, silently wrong copy of the same fact.
+              notesDir: vaultNotesDir(registeredGroups[mainJid]) ?? '',
+              linkTimestamps: () => linkTimestamps(mainGroupFolder),
+              messageTimestamps: () => messageTimestamps(mainJid, since),
+              taskRuns: () => taskRunTimes(mainGroupFolder, since),
+            },
+            count,
+          );
+        },
         sendToAgent: injectUserMessage,
         lastRefreshAgeMs: () => {
           try {

@@ -12,6 +12,7 @@
 import { LinkQuery, LinkRow, LinkUpdate, splitTags } from '../db.js';
 import type { Rule } from '../rules.js';
 import type { InstalledSkill, SkillProposal } from '../skill-proposals.js';
+import type { DayStats } from '../day-stats.js';
 import type { TurnTrace } from '../turn-trace.js';
 import { NewMessage, ScheduledTask } from '../types.js';
 
@@ -46,6 +47,8 @@ export interface ApiDeps {
   rejectSkill: (name: string) => boolean;
   /** What went into the last few answers. */
   recentTurns: (chatJid: string) => TurnTrace[];
+  /** The last week, reconstructed from traces that already exist. */
+  days: (count: number) => DayStats[];
 
   /** Age of the last successful token refresh, in ms, or null if never. */
   lastRefreshAgeMs?: () => number | null;
@@ -340,4 +343,17 @@ export function installSkill(
 export function discardSkill(deps: ApiDeps, name: string): { discarded: boolean } {
   if (!name) return { discarded: false };
   return { discarded: deps.rejectSkill(name) };
+}
+
+/**
+ * The week so far.
+ *
+ * Capped rather than free: the window is a fixed set of buckets computed on
+ * every call, and an unbounded one is a request that reads the whole vault.
+ */
+export const MAX_DAYS = 31;
+
+export function days(deps: ApiDeps, count: number): { days: DayStats[] } {
+  const n = Number.isFinite(count) && count > 0 ? Math.min(count, MAX_DAYS) : 7;
+  return { days: deps.days(n) };
 }
