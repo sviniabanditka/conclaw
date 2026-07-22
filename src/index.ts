@@ -118,7 +118,13 @@ import {
   learnButton,
   proposalButtons,
 } from './rule-actions.js';
-import { addRule, readRules, rulesFilePath, rulesPromptBlock } from './rules.js';
+import {
+  addRule,
+  readRules,
+  removeRule,
+  rulesFilePath,
+  rulesPromptBlock,
+} from './rules.js';
 import {
   announcement,
   applySkillAction,
@@ -126,8 +132,10 @@ import {
 } from './skill-actions.js';
 import {
   listProposals,
+  listSkills,
   markAnnounced,
   promoteProposal,
+  readProposal,
   rejectProposal,
 } from './skill-proposals.js';
 import { TokenWatchdog } from './token-watchdog.js';
@@ -1378,6 +1386,7 @@ async function main(): Promise<void> {
   const mainGroupFolder = mainJid ? registeredGroups[mainJid].folder : undefined;
   if (MINIAPP_PORT && mainJid && mainGroupFolder) {
     const refreshLog = path.join(LOGS_DIR, 'refresh-token.log');
+    const containerSkillsDir = path.join(process.cwd(), 'container', 'skills');
     startMiniAppServer({
       port: MINIAPP_PORT,
       botToken: readEnvFile(['TELEGRAM_BOT_TOKEN']).TELEGRAM_BOT_TOKEN || '',
@@ -1392,6 +1401,26 @@ async function main(): Promise<void> {
         deleteLink,
         countLinks,
         searchHistory: searchMessages,
+        readRules: () =>
+          readRules(rulesFilePath(resolveGroupFolderPath(mainGroupFolder))),
+        removeRule: (text) =>
+          removeRule(rulesFilePath(resolveGroupFolderPath(mainGroupFolder)), text),
+        listSkills: () => listSkills(containerSkillsDir),
+        listProposals: () =>
+          listProposals(
+            resolveGroupFolderPath(mainGroupFolder),
+            containerSkillsDir,
+          ),
+        readProposal: (name) =>
+          readProposal(resolveGroupFolderPath(mainGroupFolder), name),
+        promoteSkill: (name) =>
+          promoteProposal(
+            resolveGroupFolderPath(mainGroupFolder),
+            containerSkillsDir,
+            name,
+          ),
+        rejectSkill: (name) =>
+          rejectProposal(resolveGroupFolderPath(mainGroupFolder), name),
         sendToAgent: injectUserMessage,
         lastRefreshAgeMs: () => {
           try {

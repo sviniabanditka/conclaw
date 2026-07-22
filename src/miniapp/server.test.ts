@@ -10,6 +10,8 @@ import http from 'http';
 import { createHandler, startMiniAppServer, INIT_DATA_HEADER } from './server.js';
 import { ApiDeps } from './api.js';
 import { LinkQuery, LinkRow, LinkUpdate } from '../db.js';
+import type { Rule } from '../rules.js';
+import type { SkillProposal } from '../skill-proposals.js';
 import { NewMessage, ScheduledTask } from '../types.js';
 
 vi.mock('../logger.js', () => ({
@@ -76,7 +78,11 @@ let tasks: ScheduledTask[];
 let links: LinkRow[];
 let history: NewMessage[];
 let sent: string[];
+let rules: Rule[];
+let proposals: SkillProposal[];
 const deleted: string[] = [];
+const installed: string[] = [];
+const discarded: string[] = [];
 /** Group folders the api layer asked about — proves scoping is not bypassed. */
 const scopes: string[] = [];
 
@@ -121,6 +127,28 @@ beforeAll(async () => {
         String(m.content).toLocaleLowerCase().includes(q.toLocaleLowerCase()),
       ),
     sendToAgent: (_jid, text) => sent.push(text),
+
+    readRules: () => rules,
+    removeRule: (text) => {
+      const before = rules.length;
+      rules = rules.filter((r) => r.text !== text);
+      return rules.length < before;
+    },
+    listSkills: () => [{ name: 'notes', description: 'Заметки.' }],
+    listProposals: () => proposals,
+    readProposal: (name) =>
+      proposals.some((p) => p.name === name)
+        ? `---\nname: ${name}\ndescription: x\n---\n\n# Полный текст`
+        : null,
+    promoteSkill: (name) => {
+      installed.push(name);
+      return { promoted: true };
+    },
+    rejectSkill: (name) => {
+      discarded.push(name);
+      return true;
+    },
+
     lastRefreshAgeMs: () => 60_000,
   };
 
@@ -150,6 +178,22 @@ beforeEach(() => {
     } as NewMessage,
   ];
   sent = [];
+  rules = [
+    { text: 'Не делегировать сабагенту', learnedAt: '2026-07-22' },
+    { text: 'Заметки в General', learnedAt: '2026-07-22' },
+  ];
+  proposals = [
+    {
+      name: 'weather-jokes',
+      dir: '/tmp/weather-jokes',
+      description: 'Шутит про погоду.',
+      bytes: 120,
+      replaces: false,
+      announced: true,
+    },
+  ];
+  installed.length = 0;
+  discarded.length = 0;
 });
 
 afterAll(async () => {
@@ -206,13 +250,22 @@ describe('app shell', () => {
 });
 
 describe('authentication', () => {
-  const reads = ['/api/overview', '/api/links', '/api/tasks', '/api/history?q=x'];
+  const reads = [
+    '/api/overview',
+    '/api/links',
+    '/api/tasks',
+    '/api/history?q=x',
+    '/api/brain',
+  ];
   const writes = [
     '/api/links/read',
     '/api/links/update',
     '/api/links/delete',
     '/api/tasks/delete',
     '/api/message',
+    '/api/rules/forget',
+    '/api/skills/install',
+    '/api/skills/discard',
   ];
 
   it('rejects every read route with no initData at all', async () => {
@@ -485,5 +538,57 @@ describe('startMiniAppServer', () => {
     expect(
       startMiniAppServer({ port: 0, botToken: TOKEN, allowedUserIds: [OWNER], api }),
     ).toBeNull();
+  });
+});
+
+/**
+ * The only window onto what the assistant taught itself. Before this existed
+ * a learned rule could not be removed from a phone at all, and a proposed
+ * skill was approved on the strength of a single line of description.
+ */
+describe('brain', () => {
+  it('returns rules, installed skills and pending proposals', async () => {
+    const body = await json(await get('/api/brain', initData()));
+    expect(body.rules.map((r: Rule) => r.text)).toContain('Не делегировать сабагенту');
+    expect(body.skills.map((s: { name: string }) => s.name)).toContain('notes');
+    expect(body.proposals[0].name).toBe('weather-jokes');
+  });
+
+  // Approving prose that instructs an agent, having read one line, is not a
+  // decision — it is a formality.
+  it('carries the whole proposed skill, not just its description', async () => {
+    const body = await json(await get('/api/brain', initData()));
+    expect(body.proposals[0].content).toContain('# Полный текст');
+  });
+
+  it('forgets a rule by its text', async () => {
+    expect(
+      await json(await post('/api/rules/forget', { text: 'Заметки в General' })),
+    ).toEqual({ removed: true });
+    const body = await json(await get('/api/brain', initData()));
+    expect(body.rules.map((r: Rule) => r.text)).not.toContain('Заметки в General');
+  });
+
+  it('reports a rule that was not there rather than claiming success', async () => {
+    expect(await json(await post('/api/rules/forget', { text: 'нет такого' }))).toEqual({
+      removed: false,
+    });
+  });
+
+  it('installs and discards a proposed skill', async () => {
+    expect(await json(await post('/api/skills/install', { name: 'weather-jokes' })))
+      .toEqual({ installed: true, reason: undefined });
+    expect(installed).toEqual(['weather-jokes']);
+
+    await post('/api/skills/discard', { name: 'weather-jokes' });
+    expect(discarded).toEqual(['weather-jokes']);
+  });
+
+  it('refuses an empty name instead of acting on one', async () => {
+    expect(await json(await post('/api/skills/install', { name: '' }))).toEqual({
+      installed: false,
+      reason: 'no name',
+    });
+    expect(installed).toEqual([]);
   });
 });

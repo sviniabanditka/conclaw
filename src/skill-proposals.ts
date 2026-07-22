@@ -183,3 +183,44 @@ export function rejectProposal(groupDir: string, name: string): boolean {
   fs.rmSync(dir, { recursive: true, force: true });
   return true;
 }
+
+export interface InstalledSkill {
+  name: string;
+  description: string;
+}
+
+/** Skills currently shipped to containers, so the app can show what exists. */
+export function listSkills(skillsDir: string): InstalledSkill[] {
+  let names: string[];
+  try {
+    names = fs.readdirSync(skillsDir);
+  } catch {
+    return [];
+  }
+  const out: InstalledSkill[] = [];
+  for (const name of names.sort()) {
+    try {
+      const content = fs.readFileSync(
+        path.join(skillsDir, name, 'SKILL.md'),
+        'utf-8',
+      );
+      out.push({ name, description: parseFrontmatter(content).description ?? '' });
+    } catch {
+      // A directory without a SKILL.md is not a skill the loader will see.
+    }
+  }
+  return out;
+}
+
+/** The full text of a proposal, for reading before approving it. */
+export function readProposal(groupDir: string, name: string): string | null {
+  if (!NAME_PATTERN.test(name)) return null;
+  try {
+    return fs.readFileSync(
+      path.join(proposalsDir(groupDir), name, 'SKILL.md'),
+      'utf-8',
+    );
+  } catch {
+    return null;
+  }
+}

@@ -10,6 +10,8 @@
  * database, a filesystem, or a running orchestrator.
  */
 import { LinkQuery, LinkRow, LinkUpdate, splitTags } from '../db.js';
+import type { Rule } from '../rules.js';
+import type { InstalledSkill, SkillProposal } from '../skill-proposals.js';
 import { NewMessage, ScheduledTask } from '../types.js';
 
 export interface ApiDeps {
@@ -28,6 +30,19 @@ export interface ApiDeps {
   searchHistory: (chatJid: string, query: string, limit?: number) => NewMessage[];
   /** Hand text to the agent as though it had arrived in the chat. */
   sendToAgent: (chatJid: string, text: string) => void;
+
+  /**
+   * What the assistant taught itself: rules it learned, skills it has, and
+   * skills it wrote and is waiting on. The app is the only place these can be
+   * read and removed — the files live on the host, out of reach from a phone.
+   */
+  readRules: () => Rule[];
+  removeRule: (text: string) => boolean;
+  listSkills: () => InstalledSkill[];
+  listProposals: () => SkillProposal[];
+  readProposal: (name: string) => string | null;
+  promoteSkill: (name: string) => { promoted: boolean; reason?: string };
+  rejectSkill: (name: string) => boolean;
 
   /** Age of the last successful token refresh, in ms, or null if never. */
   lastRefreshAgeMs?: () => number | null;
@@ -264,4 +279,59 @@ export function overview(deps: ApiDeps, upcomingLimit = 5): Overview {
     lastRefreshAgeMs: deps.lastRefreshAgeMs?.() ?? null,
     generatedAt: new Date(nowMs).toISOString(),
   };
+}
+
+// --- what the assistant taught itself ------------------------------------
+
+export interface ProposalView {
+  name: string;
+  description: string;
+  replaces: boolean;
+  /** The whole SKILL.md — approving prose unread is approving it blind. */
+  content: string;
+}
+
+export interface Brain {
+  rules: Rule[];
+  skills: InstalledSkill[];
+  proposals: ProposalView[];
+}
+
+export function brain(deps: ApiDeps): Brain {
+  return {
+    rules: deps.readRules(),
+    skills: deps.listSkills(),
+    proposals: deps.listProposals().map((p) => ({
+      name: p.name,
+      description: p.description,
+      replaces: p.replaces,
+      content: deps.readProposal(p.name) ?? '',
+    })),
+  };
+}
+
+/**
+ * Forget a rule.
+ *
+ * Matched on text rather than an index: the list is read on a phone and acted
+ * on later, and an index would silently point at a different rule once
+ * anything above it changed.
+ */
+export function forgetRule(deps: ApiDeps, text: string): { removed: boolean } {
+  if (!text) return { removed: false };
+  return { removed: deps.removeRule(text) };
+}
+
+export function installSkill(
+  deps: ApiDeps,
+  name: string,
+): { installed: boolean; reason?: string } {
+  if (!name) return { installed: false, reason: 'no name' };
+  const result = deps.promoteSkill(name);
+  return { installed: result.promoted, reason: result.reason };
+}
+
+export function discardSkill(deps: ApiDeps, name: string): { discarded: boolean } {
+  if (!name) return { discarded: false };
+  return { discarded: deps.rejectSkill(name) };
 }

@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
 import { Ask } from '@/components/Ask';
+import { Brain } from '@/components/Brain';
 import { History } from '@/components/History';
 import { Links } from '@/components/Links';
 import { Overview } from '@/components/Overview';
@@ -12,6 +13,7 @@ const TABS = [
   { value: 'overview', label: 'Обзор' },
   { value: 'links', label: 'Ссылки' },
   { value: 'history', label: 'История' },
+  { value: 'brain', label: 'Мозг' },
   { value: 'ask', label: 'Спросить' },
 ];
 
@@ -60,6 +62,9 @@ export function App() {
             </TabsContent>
             <TabsContent value="history">
               <History onError={onError} />
+            </TabsContent>
+            <TabsContent value="brain">
+              <Brain onError={onError} />
             </TabsContent>
             <TabsContent value="ask">
               <Ask onError={onError} />

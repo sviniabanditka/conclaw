@@ -20,7 +20,11 @@ import { logger } from '../logger.js';
 import { verifyInitData } from './auth.js';
 import {
   ApiDeps,
+  brain,
   deleteTask,
+  discardSkill,
+  forgetRule,
+  installSkill,
   listLinks,
   listTasks,
   overview,
@@ -263,6 +267,9 @@ async function handle(
       case '/api/history':
         send(res, 200, searchHistory(opts.api, url.searchParams.get('q') ?? ''));
         return;
+      case '/api/brain':
+        send(res, 200, brain(opts.api));
+        return;
     }
   }
 
@@ -293,6 +300,15 @@ async function handle(
         return;
       case '/api/message':
         send(res, 200, sendMessage(opts.api, String(body.text ?? '')));
+        return;
+      case '/api/rules/forget':
+        send(res, 200, forgetRule(opts.api, String(body.text ?? '')));
+        return;
+      case '/api/skills/install':
+        send(res, 200, installSkill(opts.api, String(body.name ?? '')));
+        return;
+      case '/api/skills/discard':
+        send(res, 200, discardSkill(opts.api, String(body.name ?? '')));
         return;
     }
   }

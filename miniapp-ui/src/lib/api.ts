@@ -28,6 +28,29 @@ export interface MessageView {
   text: string;
 }
 
+export interface Rule {
+  text: string;
+  learnedAt: string;
+}
+
+export interface InstalledSkill {
+  name: string;
+  description: string;
+}
+
+export interface ProposalView {
+  name: string;
+  description: string;
+  replaces: boolean;
+  content: string;
+}
+
+export interface Brain {
+  rules: Rule[];
+  skills: InstalledSkill[];
+  proposals: ProposalView[];
+}
+
 export interface Overview {
   linkCount: number;
   unreadLinkCount: number;
@@ -91,4 +114,11 @@ export const api = {
   history: (q: string) => request<{ messages: MessageView[] }>(`history${query({ q })}`),
 
   send: (text: string) => post<{ sent: boolean; reason?: string }>('message', { text }),
+
+  brain: () => request<Brain>('brain'),
+  forgetRule: (text: string) => post<{ removed: boolean }>('rules/forget', { text }),
+  installSkill: (name: string) =>
+    post<{ installed: boolean; reason?: string }>('skills/install', { name }),
+  discardSkill: (name: string) =>
+    post<{ discarded: boolean }>('skills/discard', { name }),
 };
