@@ -11,9 +11,12 @@ import path from 'path';
 
 import Database from 'better-sqlite3';
 
+
 import { STORE_DIR } from '../src/config.js';
 import { readEnvFile } from '../src/env.js';
 import { transcriptionProblems } from '../src/transcription.js';
+import { checkAnthropicCredential } from '../src/credential-check.js';
+import { DATA_DIR, ONECLI_URL } from '../src/config.js';
 import { logger } from '../src/logger.js';
 import { getServiceManager, isRoot } from './platform.js';
 import { emitStatus } from './status.js';
@@ -193,6 +196,18 @@ export async function run(_args: string[]): Promise<void> {
     ? 'configured'
     : 'not_configured';
 
+  // Does the credential actually work? Everything else asks whether something
+  // is configured; during the outage this was written for, the gateway was up,
+  // the secret was listed and its own logs said the injection had been
+  // applied — while every reply failed with 401 for hours.
+  const { OneCLI } = await import('@onecli-sh/sdk');
+  const onecli = new OneCLI({ url: ONECLI_URL });
+  const probe = await checkAnthropicCredential({
+    getGatewayConfig: () => onecli.getContainerConfig(),
+    tmpDir: path.join(DATA_DIR, 'tmp'),
+  });
+  const credentialWorks = probe.ok ? 'yes' : `${probe.reason} — ${probe.detail}`;
+
   // Token refresh is scheduled outside this process, so nothing here notices
   // its absence until the credential expires hours later and every reply
   // starts failing with a 401 that reads like a broken key.
@@ -210,11 +225,18 @@ export async function run(_args: string[]): Promise<void> {
   }
 
   // Determine overall status
+  // A rejected credential is fatal — the bot cannot answer at all. An
+  // unreachable gateway is not: an install using the native credential proxy
+  // instead of OneCLI has no gateway to reach, and failing it here would be a
+  // false alarm on a working system.
+  const credentialFatal = !probe.ok && probe.reason === 'unauthorized';
+
   const status =
     (service === 'running' || service === 'running_unmanaged') &&
     credentials !== 'missing' &&
     anyChannelConfigured &&
-    registeredGroups > 0
+    registeredGroups > 0 &&
+    !credentialFatal
       ? 'success'
       : 'failed';
 
@@ -230,6 +252,7 @@ export async function run(_args: string[]): Promise<void> {
     MOUNT_ALLOWLIST: mountAllowlist,
     TRANSCRIPTION: transcription.length === 0 ? 'ready' : transcription.join('; '),
     TOKEN_REFRESH: tokenRefresh,
+    CREDENTIAL_WORKS: credentialWorks,
     MINIAPP: miniappState,
     CALENDAR: calendarStubs,
     STATUS: status,

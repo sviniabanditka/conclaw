@@ -74,6 +74,11 @@ code.
 | `/update-conclaw` | Bring upstream updates into a customized install |
 | `/init-onecli` | Install OneCLI Agent Vault and migrate `.env` credentials to it |
 | `/add-caveman` | Enable compressed communication style (lite/full/ultra/off) |
+| `/verify` | Check a running install and report what is broken vs merely unconfigured |
+
+What `/setup` cannot do — the OAuth apps, the BotFather registration, DNS and
+TLS — is in [docs/MANUAL-SETUP.md](docs/MANUAL-SETUP.md), each with the symptom
+of skipping it.
 
 ## Secrets / Credentials / Proxy (OneCLI)
 
