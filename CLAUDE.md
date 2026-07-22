@@ -33,7 +33,7 @@ live in a repository.
   Their Phase 2 reads *"Verify Code Is Present"*. E.g. `/add-telegram`,
   `/add-telegram-swarm`, `/add-telegram-reactions`, `/add-voice-telegram`,
   `/add-compact`, `/channel-formatting`, `/add-gcal-tool`, `/add-mnemon`
-- **Utility skills** — ship code files alongside SKILL.md (e.g. `/claw`, `/refresh-token`)
+- **Utility skills** — ship code files alongside SKILL.md (e.g. `/claw`)
 - **Operational skills** — instruction-only workflows (e.g. `/setup`, `/debug`)
 - **Container skills** — loaded inside agent containers at runtime (`container/skills/`)
 
@@ -62,9 +62,12 @@ asked is not inert, whatever its README says. Registering an MCP server whose
 credentials are absent is the case that taught this: it fails on every
 container start and logs an error in installs that have no calendar.
 
-Local install state — `.env`, `store/`, `groups/<name>/`, the copies utility
-skills write into `scripts/` — stays out of git. That is data and secrets, not
-code.
+Local install state — `.env`, `store/`, `groups/<name>/` — stays out of git.
+That is data and secrets, not code. Scripts a skill needs live in `scripts/`
+and ship there, in one copy: `/refresh-token` used to keep a template beside
+its SKILL.md and copy it in, and the two texts had already drifted apart while
+`deploy/k3s/workspace.yaml` referenced only the copy — so a fresh clone booted
+with no token refresh at all.
 
 | Skill | When to Use |
 |-------|-------------|

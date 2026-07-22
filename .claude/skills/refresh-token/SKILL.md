@@ -44,28 +44,27 @@ python3 --version 2>/dev/null && echo "OK" || echo "MISSING"
 
 All three (`claude`, `onecli`, `python3`) must be available. If any are missing, fix before proceeding.
 
-## Phase 2: Install Script
+## Phase 2: Verify Code Is Present
 
-### Copy the script
+Both scripts ship on `main` — there is nothing to copy:
 
-The script ships on `main` at `scripts/refresh-token.sh`. If it's missing for any reason, copy it from the skill directory:
-
-```bash
-mkdir -p scripts
-cp "${CLAUDE_SKILL_DIR}/refresh-token.sh" scripts/refresh-token.sh 2>/dev/null || true
-chmod +x scripts/refresh-token.sh
+```
+scripts/refresh-token.sh       does one refresh
+scripts/refresh-token-loop.sh  re-runs it hourly where there is no cron
 ```
 
-### Test the script
-
 ```bash
+ls -l scripts/refresh-token.sh scripts/refresh-token-loop.sh
 bash scripts/refresh-token.sh
 ```
 
-Expected output: `Token refreshed at <date>`. If it fails:
-- "No credentials file found" → Run `claude auth login` first
-- "Failed to extract token" → Check `~/.claude/.credentials.json` exists and has `claudeAiOauth.accessToken`
-- "onecli: command not found" → Install OneCLI or add `~/.local/bin` to PATH
+A successful run prints `Token refreshed at …` and appends to
+`logs/refresh-token.log`.
+
+Note the shape of the OneCLI secret it creates: a **generic** secret with the
+header spelled out, not `--type anthropic`. The typed variant stopped resolving
+in the gateway — it lists fine and matches the host, and every request comes
+back `credential_not_found`.
 
 ## Phase 3: Set Up Cron
 
@@ -82,25 +81,20 @@ This runs at minute 0 of every hour. The token expires every ~7 hours, so hourly
 
 ### No cron? Use the loop instead
 
-Containers and managed pods often ship without `crond` or systemd timers. Check
+Containers and managed pods often have neither crond nor systemd timers. Check
 first — `command -v crontab` and `crontab -l` both failing means there is no
-scheduler to install into. In that case use the bundled loop:
+scheduler to install into. Then run the loop in its own tmux session:
 
 ```bash
-cp .claude/skills/refresh-token/refresh-token-loop.sh scripts/refresh-token-loop.sh
-chmod +x scripts/refresh-token-loop.sh
-tmux new -d -s refresh 'scripts/refresh-token-loop.sh'
+tmux new -d -s refresh 'cd '"$(pwd)"' && exec scripts/refresh-token-loop.sh'
 ```
 
-It re-runs the refresh on `REFRESH_INTERVAL_SECONDS` (default 3600) and logs to
-`logs/refresh-token.log`.
+The k3s bootstrap in `deploy/k3s/workspace.yaml` already starts it this way on
+pod start, and warns loudly if the script is missing.
 
-> **It dies with its tmux session and does not self-restart.** A killed or
-> restarted pod silently stops refreshing, and nothing surfaces that until the
-> token expires hours later and the agent starts returning
-> `401 authentication_error`. Treat a stale last line in `logs/refresh-token.log`
-> as the real health signal — check it whenever the agent reports an auth error,
-> before suspecting the credential itself.
+It dies with its tmux session and does not restart itself, so a token can go
+stale for hours without anything saying so. Two things watch for that: the
+orchestrator's own token watchdog, and `/verify` → `TOKEN_REFRESH`.
 
 ### Verify cron is installed
 

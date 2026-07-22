@@ -44,12 +44,13 @@ metadata:
     # line if you terminate TLS some other way.
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
+  ingressClassName: traefik
   tls:
     - hosts:
-        - conclaw.example.com # <-- your domain
+        - conclaw.sviniabanditka.com
       secretName: conclaw-miniapp-tls
   rules:
-    - host: conclaw.example.com # <-- your domain
+    - host: conclaw.sviniabanditka.com
       http:
         paths:
           - path: /
