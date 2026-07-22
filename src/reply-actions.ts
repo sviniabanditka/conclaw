@@ -14,14 +14,22 @@ import { MessageButton, ScheduledTask } from './types.js';
 
 const PREFIX = 'rl:';
 const UNDO_PREFIX = 'un:';
+const NOTE_PREFIX = 'nt:';
 
 /** Beyond this the index is trimmed oldest-first; only recent replies stay actionable. */
 export const MAX_TRACKED_REPLIES = 200;
 
 /**
- * Buttons under a reply. `undoable` adds Undo when the turn created tasks —
- * capture from speech mishears, and a misheard reminder should cost one tap to
- * remove rather than a hunt through the task list.
+ * Buttons under a reply.
+ *
+ * 📝 files the reply as a note. It sits on every reply rather than appearing
+ * only when something looks worth keeping: the moment you know an answer is
+ * worth keeping is the moment you read it, and a button that has to be
+ * predicted in advance is one that is missing exactly when it is wanted.
+ *
+ * `undoable` adds Undo when the turn created tasks — capture from speech
+ * mishears, and a misheard reminder should cost one tap to remove rather than
+ * a hunt through the task list.
  */
 export function replyButtons(undoable = false): MessageButton[] {
   // Emoji rather than words: the two remind buttons differ only in their
@@ -30,9 +38,14 @@ export function replyButtons(undoable = false): MessageButton[] {
   const buttons: MessageButton[] = [
     { label: '⏱️ 1h', action: `${PREFIX}60` },
     { label: '⏱️ 3h', action: `${PREFIX}180` },
+    { label: '📝', action: `${NOTE_PREFIX}1` },
   ];
   if (undoable) buttons.push({ label: '↩️', action: `${UNDO_PREFIX}1` });
   return buttons;
+}
+
+export function isNoteAction(action: string): boolean {
+  return action.startsWith(NOTE_PREFIX);
 }
 
 export function isUndoAction(action: string): boolean {
@@ -84,6 +97,8 @@ export interface ReplyActionDeps {
   /** Tasks the turn behind this reply created, for Undo. */
   getCreatedTasks?: (chatJid: string, messageId: string) => string[];
   deleteTask?: (id: string) => void;
+  /** Hand text back to the agent as though it had arrived in the chat. */
+  sendToAgent?: (chatJid: string, text: string) => void;
 }
 
 function describe(minutes: number): string {
@@ -97,6 +112,21 @@ export async function applyReplyAction(
   action: string,
   deps: ReplyActionDeps,
 ): Promise<string | null> {
+  if (isNoteAction(action)) {
+    const text = deps.getText(chatJid, messageId);
+    if (!text) return 'Reply no longer tracked';
+    if (!deps.sendToAgent) return 'Notes unavailable';
+    // Filed by the agent rather than written here: a note needs a category, a
+    // place in the vault and a line in the index, and all of that lives in the
+    // agent's skill. This only decides *that* it should be kept.
+    deps.sendToAgent(
+      chatJid,
+      `Запиши это в заметки, следуя скиллу notes:\n\n${text}`,
+    );
+    await deps.editMessage(chatJid, messageId, `${text}\n\n📝 Записываю…`);
+    return 'Saving';
+  }
+
   if (isUndoAction(action)) {
     const ids = deps.getCreatedTasks?.(chatJid, messageId) ?? [];
     const text = deps.getText(chatJid, messageId);

@@ -371,6 +371,27 @@ function recordBotMessage(
 }
 
 /**
+ * Put text into the chat as though the user had typed it.
+ *
+ * Used by the Mini App's compose box and by the 📝 button. Stored exactly as an
+ * arriving message so the ordinary poll loop picks it up — which means the
+ * agent's reply lands in the chat, with its buttons and history, rather than
+ * needing a second delivery path.
+ */
+function injectUserMessage(chatJid: string, text: string): void {
+  storeMessage({
+    id: `inject-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    chat_jid: chatJid,
+    sender: 'conclaw',
+    sender_name: getLastSenderName(chatJid) || 'User',
+    content: text,
+    timestamp: new Date().toISOString(),
+    is_from_me: false,
+    is_bot_message: false,
+  });
+}
+
+/**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */
@@ -1011,6 +1032,7 @@ async function main(): Promise<void> {
             return stored ? stored.split(',').filter(Boolean) : [];
           },
           editMessage: editText,
+          sendToAgent: injectUserMessage,
         });
         if (replyResult !== null) return replyResult;
       }
@@ -1247,21 +1269,7 @@ async function main(): Promise<void> {
         deleteLink,
         countLinks,
         searchHistory: searchMessages,
-        // Stored exactly as an arriving chat message, so the ordinary poll
-        // loop picks it up and the reply lands in Telegram where the rest of
-        // the conversation is.
-        sendToAgent: (jid, text) => {
-          storeMessage({
-            id: `miniapp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            chat_jid: jid,
-            sender: 'miniapp',
-            sender_name: getLastSenderName(jid) || 'User',
-            content: text,
-            timestamp: new Date().toISOString(),
-            is_from_me: false,
-            is_bot_message: false,
-          });
-        },
+        sendToAgent: injectUserMessage,
         lastRefreshAgeMs: () => {
           try {
             return Date.now() - fs.statSync(refreshLog).mtimeMs;

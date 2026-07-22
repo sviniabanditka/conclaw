@@ -71,14 +71,17 @@ describe('ReplyIndex', () => {
 });
 
 describe('parseReplyAction', () => {
-  it('round-trips the buttons', () => {
-    for (const b of replyButtons()) {
+  // Not every button is a reminder any more — 📝 files a note instead.
+  it('round-trips every remind button', () => {
+    const remind = replyButtons().filter((b) => b.label.startsWith('⏱️'));
+    expect(remind).toHaveLength(2);
+    for (const b of remind) {
       expect(parseReplyAction(b.action)?.minutes).toBeGreaterThan(0);
     }
   });
 
   it('labels the buttons with emoji and the delay', () => {
-    expect(replyButtons().map((b) => b.label)).toEqual(['⏱️ 1h', '⏱️ 3h']);
+    expect(replyButtons().map((b) => b.label)).toEqual(['⏱️ 1h', '⏱️ 3h', '📝']);
   });
 
   it('ignores actions that are not ours', () => {
@@ -185,5 +188,66 @@ describe('undo', () => {
     const d = undoDeps();
     await applyReplyAction(CHAT, MSG, 'un:1', d);
     expect(d.createTask).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The 📝 button.
+ *
+ * It deliberately does not write the note itself: categorising it, placing it
+ * in the vault and adding it to the index all live in the agent's skill, and a
+ * second implementation here would drift from that one silently.
+ */
+describe('saving a reply as a note', () => {
+  const CHAT = 'tg:1';
+  const MSG = '55';
+
+  function noteDeps(over: Partial<ReplyActionDeps> = {}): ReplyActionDeps {
+    return {
+      groupFolder: 'telegram_main',
+      getText: () => 'Домен продлён до марта',
+      createTask: vi.fn(),
+      editMessage: vi.fn(async () => {}),
+      sendToAgent: vi.fn(),
+      ...over,
+    };
+  }
+
+  it('is offered on every reply, not only when something looks keepable', () => {
+    expect(replyButtons().map((b) => b.label)).toContain('📝');
+    expect(replyButtons(true).map((b) => b.label)).toContain('📝');
+  });
+
+  it('hands the reply to the agent rather than writing a note itself', async () => {
+    const d = noteDeps();
+    const toast = await applyReplyAction(CHAT, MSG, 'nt:1', d);
+
+    expect(toast).toBe('Saving');
+    expect(calls(d.sendToAgent)[0][0]).toBe(CHAT);
+    expect(calls(d.sendToAgent)[0][1]).toContain('Домен продлён до марта');
+    // Names the skill, so the agent applies the vault's conventions.
+    expect(calls(d.sendToAgent)[0][1]).toContain('notes');
+  });
+
+  it('shows that it is working, so a slow agent does not read as a dead button', async () => {
+    const d = noteDeps();
+    await applyReplyAction(CHAT, MSG, 'nt:1', d);
+    expect(calls(d.editMessage)[0][2]).toContain('📝');
+  });
+
+  it('says so when the reply has aged out of the index', async () => {
+    const d = noteDeps({ getText: () => undefined });
+    expect(await applyReplyAction(CHAT, MSG, 'nt:1', d)).toBe('Reply no longer tracked');
+    expect(calls(d.sendToAgent)).toHaveLength(0);
+  });
+
+  // A channel wired without the injection path must refuse, not pretend.
+  it('refuses when there is no way to reach the agent', async () => {
+    const d = noteDeps({ sendToAgent: undefined });
+    expect(await applyReplyAction(CHAT, MSG, 'nt:1', d)).toBe('Notes unavailable');
+  });
+
+  it('does not confuse a note action with a reminder', async () => {
+    expect(parseReplyAction('nt:1')).toBeNull();
   });
 });
