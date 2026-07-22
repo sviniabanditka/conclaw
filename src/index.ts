@@ -123,6 +123,12 @@ import { TraceStore, TurnRecorder } from './turn-trace.js';
 import { dayStats } from './day-stats.js';
 import { LinkEnricher } from './link-enrich.js';
 import {
+  createNote as createVaultNote,
+  deleteNote as deleteVaultNote,
+  listNotes as listVaultNotes,
+  saveNote as saveVaultNote,
+} from './notes-store.js';
+import {
   applyRuleAction,
   learnButton,
   proposalButtons,
@@ -1115,7 +1121,9 @@ async function main(): Promise<void> {
         const ruleResult = await applyRuleAction(chatJid, messageId, action, {
           getText: (jid, id) => replyIndex.get(jid, id),
           sendToAgent: injectUserMessage,
-          awaitProposal: (jid) => awaitingProposal.add(jid),
+          awaitProposal: (jid) => {
+            awaitingProposal.add(jid);
+          },
           addRule: (text) =>
             addRule(rulesFilePath(resolveGroupFolderPath(group.folder)), text),
           editMessage: editText,
@@ -1450,6 +1458,27 @@ async function main(): Promise<void> {
         deleteLink,
         countLinks,
         searchHistory: searchMessages,
+
+        listNotes: () => {
+          const dir = vaultNotesDir(registeredGroups[mainJid]);
+          return dir ? listVaultNotes(dir) : [];
+        },
+        saveNote: (id, input) => {
+          const dir = vaultNotesDir(registeredGroups[mainJid]);
+          return dir
+            ? saveVaultNote(dir, id, input)
+            : { saved: false, reason: 'vault not mounted' };
+        },
+        createNote: (input, folder) => {
+          const dir = vaultNotesDir(registeredGroups[mainJid]);
+          return dir
+            ? createVaultNote(dir, input, folder)
+            : { saved: false, reason: 'vault not mounted' };
+        },
+        deleteNote: (id) => {
+          const dir = vaultNotesDir(registeredGroups[mainJid]);
+          return dir ? deleteVaultNote(dir, id) : false;
+        },
         readRules: () =>
           readRules(rulesFilePath(resolveGroupFolderPath(mainGroupFolder))),
         removeRule: (text) =>
@@ -1491,7 +1520,6 @@ async function main(): Promise<void> {
             count,
           );
         },
-        sendToAgent: injectUserMessage,
         lastRefreshAgeMs: () => {
           try {
             return Date.now() - fs.statSync(refreshLog).mtimeMs;

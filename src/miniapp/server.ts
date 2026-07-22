@@ -21,17 +21,20 @@ import { verifyInitData } from './auth.js';
 import {
   ApiDeps,
   brain,
+  createNote,
   days,
+  deleteNote,
   deleteTask,
   discardSkill,
   forgetRule,
   installSkill,
   listLinks,
+  listNotes,
   listTasks,
   overview,
   removeLink,
+  saveNote,
   searchHistory,
-  sendMessage,
   setLinkFields,
   setLinkRead,
 } from './api.js';
@@ -271,6 +274,16 @@ async function handle(
       case '/api/brain':
         send(res, 200, brain(opts.api));
         return;
+      case '/api/notes':
+        send(
+          res,
+          200,
+          listNotes(opts.api, {
+            q: url.searchParams.get('q') ?? undefined,
+            tag: url.searchParams.get('tag') ?? undefined,
+          }),
+        );
+        return;
       case '/api/days':
         send(res, 200, days(opts.api, Number(url.searchParams.get('n') ?? 7)));
         return;
@@ -302,8 +315,14 @@ async function handle(
       case '/api/tasks/delete':
         send(res, 200, deleteTask(opts.api, String(body.id ?? '')));
         return;
-      case '/api/message':
-        send(res, 200, sendMessage(opts.api, String(body.text ?? '')));
+      case '/api/notes/save':
+        send(res, 200, saveNote(opts.api, String(body.id ?? ''), body));
+        return;
+      case '/api/notes/create':
+        send(res, 200, createNote(opts.api, body));
+        return;
+      case '/api/notes/delete':
+        send(res, 200, deleteNote(opts.api, String(body.id ?? '')));
         return;
       case '/api/rules/forget':
         send(res, 200, forgetRule(opts.api, String(body.text ?? '')));

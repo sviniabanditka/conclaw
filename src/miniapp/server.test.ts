@@ -12,6 +12,7 @@ import { ApiDeps } from './api.js';
 import { LinkQuery, LinkRow, LinkUpdate } from '../db.js';
 import type { Rule } from '../rules.js';
 import type { SkillProposal } from '../skill-proposals.js';
+import type { Note } from '../notes-store.js';
 import { NewMessage, ScheduledTask } from '../types.js';
 
 vi.mock('../logger.js', () => ({
@@ -79,9 +80,9 @@ let base: string;
 let tasks: ScheduledTask[];
 let links: LinkRow[];
 let history: NewMessage[];
-let sent: string[];
 let rules: Rule[];
 let proposals: SkillProposal[];
+let notes: Note[];
 const deleted: string[] = [];
 const installed: string[] = [];
 const discarded: string[] = [];
@@ -129,7 +130,6 @@ beforeAll(async () => {
       history.filter((m) =>
         String(m.content).toLocaleLowerCase().includes(q.toLocaleLowerCase()),
       ),
-    sendToAgent: (_jid, text) => sent.push(text),
 
     readRules: () => rules,
     removeRule: (text) => {
@@ -137,7 +137,24 @@ beforeAll(async () => {
       rules = rules.filter((r) => r.text !== text);
       return rules.length < before;
     },
-    listSkills: () => [{ name: 'notes', description: 'Заметки.' }],
+    listSkills: () => [{ name: 'notes', description: 'Notes.' }],
+    listNotes: () => notes,
+    saveNote: (id, input) => {
+      const note = notes.find((n) => n.id === id);
+      if (!note) return { saved: false, reason: 'not found' };
+      Object.assign(note, { title: input.title, body: input.body, tags: input.tags });
+      return { saved: true, id };
+    },
+    createNote: (input) => {
+      const id = `General/${input.title}.md`;
+      notes.push({ ...input, id, type: 'knowledge', created: null, updated: null });
+      return { saved: true, id };
+    },
+    deleteNote: (id) => {
+      const before = notes.length;
+      notes = notes.filter((n) => n.id !== id);
+      return notes.length < before;
+    },
     listProposals: () => proposals,
     readProposal: (name) =>
       proposals.some((p) => p.name === name)
@@ -201,7 +218,6 @@ beforeEach(() => {
       is_from_me: false,
     } as NewMessage,
   ];
-  sent = [];
   rules = [
     { text: 'Не делегировать сабагенту', learnedAt: '2026-07-22' },
     { text: 'Заметки в General', learnedAt: '2026-07-22' },
@@ -218,6 +234,17 @@ beforeEach(() => {
   ];
   installed.length = 0;
   discarded.length = 0;
+  notes = [
+    {
+      id: 'General/Domain.md',
+      title: 'Domain',
+      body: 'Registrar is Namecheap.',
+      tags: ['infra'],
+      type: 'knowledge',
+      created: '2026-07-01',
+      updated: '2026-07-22',
+    },
+  ];
 });
 
 afterAll(async () => {
@@ -280,13 +307,16 @@ describe('authentication', () => {
     '/api/tasks',
     '/api/history?q=x',
     '/api/brain',
+    '/api/notes',
   ];
   const writes = [
     '/api/links/read',
     '/api/links/update',
     '/api/links/delete',
     '/api/tasks/delete',
-    '/api/message',
+    '/api/notes/save',
+    '/api/notes/create',
+    '/api/notes/delete',
     '/api/rules/forget',
     '/api/skills/install',
     '/api/skills/discard',
@@ -309,7 +339,6 @@ describe('authentication', () => {
       });
       expect(res.status, route).toBe(401);
     }
-    expect(sent).toEqual([]);
   });
 
   it('rejects a forged initData', async () => {
@@ -453,27 +482,6 @@ describe('history', () => {
   });
 });
 
-describe('sending to the agent', () => {
-  it('hands the text to the chat queue', async () => {
-    expect(await json(await post('/api/message', { text: 'привет' }))).toEqual({
-      sent: true,
-    });
-    expect(sent).toEqual(['привет']);
-  });
-
-  it('refuses an empty message', async () => {
-    const body = await json(await post('/api/message', { text: '   ' }));
-    expect(body.sent).toBe(false);
-    expect(sent).toEqual([]);
-  });
-
-  it('refuses a message past the length cap', async () => {
-    const body = await json(await post('/api/message', { text: 'x'.repeat(5000) }));
-    expect(body.sent).toBe(false);
-    expect(sent).toEqual([]);
-  });
-});
-
 describe('tasks', () => {
   it('marks schedule-derived tasks so the app can refuse to delete them', async () => {
     const body = await json(await get('/api/tasks', initData()));
@@ -544,7 +552,7 @@ describe('request handling', () => {
   });
 
   it('refuses an oversized body instead of buffering it', async () => {
-    const res = await post('/api/message', { text: 'x'.repeat(20_000) });
+    const res = await post('/api/notes/save', { id: 'a', body: 'x'.repeat(20_000) });
     expect(res.status).toBe(400);
   });
 });

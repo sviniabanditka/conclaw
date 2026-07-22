@@ -29,6 +29,14 @@ export interface MessageView {
   text: string;
 }
 
+export interface NoteView {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  updated: string | null;
+}
+
 export interface Rule {
   text: string;
   learnedAt: string;
@@ -138,7 +146,18 @@ export const api = {
       `history${query({ q })}`,
     ),
 
-  send: (text: string) => post<{ sent: boolean; reason?: string }>('message', { text }),
+  notes: (opts: { q?: string; tag?: string } = {}) =>
+    request<{ notes: NoteView[]; tags: string[] }>(
+      `notes${query({ q: opts.q, tag: opts.tag })}`,
+    ),
+  saveNote: (id: string, fields: { title: string; body: string; tags: string }) =>
+    post<{ saved: boolean; id?: string; reason?: string }>('notes/save', {
+      id,
+      ...fields,
+    }),
+  createNote: (fields: { title: string; body: string; tags: string }) =>
+    post<{ saved: boolean; id?: string; reason?: string }>('notes/create', fields),
+  deleteNote: (id: string) => post<{ deleted: boolean }>('notes/delete', { id }),
 
   brain: () => request<Brain>('brain'),
   days: (n = 7) => request<{ days: DayStats[] }>(`days${query({ n: String(n) })}`),

@@ -13,6 +13,7 @@ import { LinkQuery, LinkRow, LinkUpdate, splitTags } from '../db.js';
 import type { Rule } from '../rules.js';
 import type { InstalledSkill, SkillProposal } from '../skill-proposals.js';
 import type { DayStats } from '../day-stats.js';
+import type { Note, NoteInput, SaveResult } from '../notes-store.js';
 import type { TurnTrace } from '../turn-trace.js';
 import { NewMessage, ScheduledTask } from '../types.js';
 
@@ -32,8 +33,16 @@ export interface ApiDeps {
   countLinks: (groupFolder: string, read?: boolean) => number;
 
   searchHistory: (chatJid: string, query: string, limit?: number) => NewMessage[];
-  /** Hand text to the agent as though it had arrived in the chat. */
-  sendToAgent: (chatJid: string, text: string) => void;
+
+  /**
+   * The vault. Notes are the one memory the user owns, so the app edits the
+   * files in place rather than keeping a copy; the vault's git daemon gives
+   * those edits a history.
+   */
+  listNotes: () => Note[];
+  saveNote: (id: string, input: NoteInput) => SaveResult;
+  createNote: (input: NoteInput, folder?: string) => SaveResult;
+  deleteNote: (id: string) => boolean;
 
   /**
    * What the assistant taught itself: rules it learned, skills it has, and
@@ -100,9 +109,6 @@ export interface Overview {
 
 /** Prefixes owned by a sync loop — tasks under them come back after deletion. */
 const DERIVED_PREFIXES = ['sched-', 'cal-', 'sum-'];
-
-/** Long enough for anything worth saying to the agent, short enough to bound. */
-export const MAX_MESSAGE_LENGTH = 4000;
 
 function toTaskView(task: ScheduledTask): TaskView {
   return {
@@ -254,29 +260,6 @@ export function searchHistory(
   return { messages, assistantName: deps.assistantName };
 }
 
-// --- writing back ----------------------------------------------------------
-
-/**
- * Say something to the agent from the app.
- *
- * The text is handed to the same queue an incoming chat message goes through,
- * so the reply arrives in Telegram rather than here. That is the honest
- * behaviour: the agent answers where the conversation lives, and the app does
- * not need to reimplement streaming, buttons or history to show it.
- */
-export function sendMessage(
-  deps: ApiDeps,
-  text: string,
-): { sent: boolean; reason?: string } {
-  const trimmed = (text || '').trim();
-  if (!trimmed) return { sent: false, reason: 'empty' };
-  if (trimmed.length > MAX_MESSAGE_LENGTH) {
-    return { sent: false, reason: 'too long' };
-  }
-  deps.sendToAgent(deps.chatJid, trimmed);
-  return { sent: true };
-}
-
 // --- overview --------------------------------------------------------------
 
 export function overview(deps: ApiDeps, upcomingLimit = 5): Overview {
@@ -367,4 +350,84 @@ export const MAX_DAYS = 31;
 export function days(deps: ApiDeps, count: number): { days: DayStats[] } {
   const n = Number.isFinite(count) && count > 0 ? Math.min(count, MAX_DAYS) : 7;
   return { days: deps.days(n) };
+}
+
+// --- notes ------------------------------------------------------------------
+
+export interface NoteView {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  updated: string | null;
+}
+
+function toNoteView(note: Note): NoteView {
+  return {
+    id: note.id,
+    title: note.title,
+    body: note.body,
+    tags: note.tags,
+    updated: note.updated,
+  };
+}
+
+export function listNotes(
+  deps: ApiDeps,
+  query: { q?: string; tag?: string } = {},
+): { notes: NoteView[]; tags: string[] } {
+  const all = deps.listNotes();
+  const tags = new Set<string>();
+  for (const note of all) for (const tag of note.tags) tags.add(tag);
+
+  // Filtering happens here rather than in the store so the tag list is always
+  // every tag in use — narrowing it to the current filter empties the list as
+  // soon as you pick one, with no way back.
+  const q = (query.q ?? '').trim().toLocaleLowerCase();
+  const tag = (query.tag ?? '').trim().toLocaleLowerCase();
+  const notes = all
+    .filter((n) => !tag || n.tags.some((t) => t.toLocaleLowerCase() === tag))
+    .filter(
+      (n) =>
+        !q ||
+        [n.title, n.body, n.tags.join(' ')].some((f) =>
+          f.toLocaleLowerCase().includes(q),
+        ),
+    )
+    .map(toNoteView);
+
+  return { notes, tags: [...tags].sort() };
+}
+
+function noteInput(body: Record<string, unknown>): NoteInput {
+  return {
+    title: String(body.title ?? '').slice(0, 200),
+    body: String(body.body ?? '').slice(0, 64_000),
+    tags: String(body.tags ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 12),
+  };
+}
+
+export function saveNote(
+  deps: ApiDeps,
+  id: string,
+  body: Record<string, unknown>,
+): SaveResult {
+  if (!id) return { saved: false, reason: 'no id' };
+  return deps.saveNote(id, noteInput(body));
+}
+
+export function createNote(
+  deps: ApiDeps,
+  body: Record<string, unknown>,
+): SaveResult {
+  return deps.createNote(noteInput(body), String(body.folder ?? 'General'));
+}
+
+export function deleteNote(deps: ApiDeps, id: string): { deleted: boolean } {
+  if (!id) return { deleted: false };
+  return { deleted: deps.deleteNote(id) };
 }
