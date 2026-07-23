@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FileText, Plus, Search, Trash2 } from 'lucide-react';
+import { FileText, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardMeta } from '@/components/ui/card';
 import { Input, Textarea } from '@/components/ui/input';
+import { Markdown } from '@/components/ui/markdown';
 import { Sheet, SheetAction } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, type NoteView } from '@/lib/api';
@@ -21,17 +22,24 @@ function Editor({
   onClose,
   onSaved,
   onError,
+  onOpenNote,
 }: {
   editing: Editing;
   onClose: () => void;
   onSaved: () => void;
   onError: (e: Error) => void;
+  onOpenNote: (target: string) => void;
 }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [tags, setTags] = useState('');
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<string>();
+  // A new note opens in edit; an existing one opens as a rendered view, so the
+  // common case — reading what the bot wrote — needs no keyboard.
+  const [mode, setMode] = useState<'view' | 'edit'>('view');
+
+  const isNew = editing === 'new';
 
   useEffect(() => {
     if (!editing) return;
@@ -40,9 +48,8 @@ function Editor({
     setBody(note?.body ?? '');
     setTags(note?.tags.join(', ') ?? '');
     setRefused(undefined);
+    setMode(editing === 'new' ? 'edit' : 'view');
   }, [editing]);
-
-  const isNew = editing === 'new';
 
   async function run(
     action: () => Promise<{ saved?: boolean; deleted?: boolean; reason?: string }>,
@@ -78,54 +85,83 @@ function Editor({
   useSheetChrome({
     open: Boolean(editing),
     onClose,
-    action: { text: 'Save', disabled: busy || !title.trim(), busy, onClick: save },
+    action:
+      mode === 'view'
+        ? { text: 'Edit', onClick: () => setMode('edit') }
+        : { text: 'Save', disabled: busy || !title.trim(), busy, onClick: save },
   });
 
   if (!editing) return null;
+  const note = editing === 'new' ? null : editing;
 
   return (
-    <Sheet open onClose={onClose} title={isNew ? 'New note' : 'Edit note'}>
-      <div className="flex flex-col gap-2">
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title"
-          autoFocus={isNew}
-        />
-        <Textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Markdown body"
-          className="min-h-56 font-mono"
-        />
-        <Input
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          placeholder="Tags, comma separated"
-        />
-        {refused && <div className="text-destructive px-1 text-[13px]">{refused}</div>}
+    <Sheet
+      open
+      onClose={onClose}
+      title={isNew ? 'New note' : mode === 'view' ? title : 'Edit note'}
+    >
+      {mode === 'view' && note ? (
+        <div className="flex flex-col gap-3">
+          {note.tags.length > 0 && (
+            <div className="text-link text-[12.5px]">
+              {note.tags.map((t) => `#${t}`).join(' ')}
+            </div>
+          )}
+          {body.trim() ? (
+            <Markdown onWikilink={onOpenNote}>{body}</Markdown>
+          ) : (
+            <div className="text-muted-foreground text-[14px]">Empty note.</div>
+          )}
+          <SheetAction>
+            <Button size="block" onClick={() => setMode('edit')}>
+              <Pencil className="size-4" />
+              Edit
+            </Button>
+          </SheetAction>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Title"
+            autoFocus={isNew}
+          />
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Markdown body"
+            className="min-h-56 font-mono"
+          />
+          <Input
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            placeholder="Tags, comma separated"
+          />
+          {refused && <div className="text-destructive px-1 text-[13px]">{refused}</div>}
 
-        <SheetAction>
-          <Button size="block" disabled={busy || !title.trim()} onClick={save}>
-            Save
-          </Button>
-        </SheetAction>
-        {!isNew && (
-          <Button
-            variant="destructive"
-            size="block"
-            disabled={busy}
-            onClick={() => run(() => api.deleteNote(editing.id))}
-          >
-            <Trash2 className="size-4" />
-            Delete
-          </Button>
-        )}
-        <p className="text-muted-foreground px-1 text-[12px]">
-          Saved straight into the Obsidian vault. The sync daemon commits it
-          within a couple of minutes, so every edit has a history.
-        </p>
-      </div>
+          <SheetAction>
+            <Button size="block" disabled={busy || !title.trim()} onClick={save}>
+              Save
+            </Button>
+          </SheetAction>
+          {!isNew && (
+            <Button
+              variant="destructive"
+              size="block"
+              disabled={busy}
+              onClick={() => run(() => api.deleteNote(editing.id))}
+            >
+              <Trash2 className="size-4" />
+              Delete
+            </Button>
+          )}
+          <p className="text-muted-foreground px-1 text-[12px]">
+            Saved straight into the Obsidian vault. The sync daemon commits it
+            within a couple of minutes, so every edit has a history.
+          </p>
+        </div>
+      )}
     </Sheet>
   );
 }
@@ -137,6 +173,22 @@ export function Notes({ onError }: { onError: (e: Error) => void }) {
 
   const load = useCallback(() => api.notes({ q, tag }), [q, tag]);
   const { data, refresh } = useResource(`notes:${tag ?? ''}:${q}`, load, onError);
+
+  // A [[wikilink]] names a note by its title (its filename without .md). Match
+  // it against what is loaded; a target with no match does nothing rather than
+  // opening a blank editor for a note that is not there.
+  const openByTitle = useCallback(
+    (target: string) => {
+      const found = data?.notes.find(
+        (n) => n.title.toLocaleLowerCase() === target.toLocaleLowerCase(),
+      );
+      if (found) {
+        tap();
+        setEditing(found);
+      }
+    },
+    [data],
+  );
 
   return (
     <>
@@ -227,6 +279,7 @@ export function Notes({ onError }: { onError: (e: Error) => void }) {
         onClose={() => setEditing(null)}
         onSaved={refresh}
         onError={onError}
+        onOpenNote={openByTitle}
       />
     </>
   );

@@ -15,6 +15,13 @@ import { useCallback, useEffect, useState } from 'react';
  */
 const cache = new Map<string, unknown>();
 
+/** Broadcast by a manual refresh; every mounted resource re-fetches. */
+export const REFRESH_EVENT = 'conclaw:refresh';
+
+export function broadcastRefresh(): void {
+  window.dispatchEvent(new Event(REFRESH_EVENT));
+}
+
 /** Cleared on a hard error so a stale view is not left looking authoritative. */
 export function forgetCached(key: string): void {
   cache.delete(key);
@@ -38,13 +45,10 @@ export function useResource<T>(
       },
       (err) => {
         setRefreshing(false);
-        // Only surface the failure when there is nothing to show. A refresh
-        // that fails while the previous answer is on screen is not worth
-        // replacing that answer with an error.
-        if (cache.get(key) === undefined) {
-          forgetCached(key);
-          onError(err as Error);
-        }
+        // The error is always reported — as a toast now, not a full-screen
+        // wall — but the data on screen is left alone. A background request
+        // that times out should not blank a correct answer.
+        onError(err as Error);
       },
     );
   }, [key, load, onError]);
@@ -60,9 +64,13 @@ export function useResource<T>(
     };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
+    // A manual pull-to-refresh anywhere refreshes whatever is mounted, which
+    // is only the visible panel.
+    window.addEventListener(REFRESH_EVENT, refresh);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
+      window.removeEventListener(REFRESH_EVENT, refresh);
     };
   }, [refresh]);
 
